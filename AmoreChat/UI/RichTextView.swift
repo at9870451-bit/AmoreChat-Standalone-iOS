@@ -73,7 +73,8 @@ struct RichTextView: View {
     @ViewBuilder private func prose(_ text: String) -> some View {
         let pattern = #"(?<!\\)\$([^$\n]+)\$|\\\((.+?)\\\)"#
         let regex = try? NSRegularExpression(pattern: pattern)
-        for line in text.components(separatedBy: "\n") {
+        ForEach(Array(text.components(separatedBy: "\n").enumerated()), id: \.offset) { item in
+            let line = item.element
             let range = NSRange(line.startIndex..<line.endIndex, in: line)
             if let regex, regex.firstMatch(in: line, range: range) != nil {
                 formulaView(line, display: false)
