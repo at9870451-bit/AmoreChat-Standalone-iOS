@@ -281,7 +281,7 @@ struct ComposerView: View {
             .accessibilityLabel("拍照添加附件")
             .accessibilityIdentifier("composer.attach.camera")
             .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
+            .frame(height: 86)
 
             PhotosPicker(selection: $pickedPhoto, matching: .images) {
                 tileLabel("相册", symbol: "photo")
@@ -291,7 +291,7 @@ struct ComposerView: View {
             .accessibilityLabel("从相册选取照片")
             .accessibilityIdentifier("composer.attach.photos")
             .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
+            .frame(height: 86)
 
             Button { showingFileImporter = true } label: {
                 tileLabel("文件", symbol: "paperclip")
@@ -301,7 +301,7 @@ struct ComposerView: View {
             .accessibilityLabel("从文件选取附件")
             .accessibilityIdentifier("composer.attach.file")
             .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
+            .frame(height: 86)
         }
     }
 

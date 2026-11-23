@@ -21,7 +21,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 28) {
+            VStack(spacing: 23) {
                 header
                 card {
                     row("账户管理", symbol: "person.crop.circle", page: .account)
@@ -33,7 +33,7 @@ struct SettingsView: View {
                     separator
                     row("外观", symbol: "moon.stars", value: appearanceName, page: .appearance)
                     separator
-                    row("字体大小", symbol: "textformat.size", page: .font)
+                    row("字体大小", symbol: "textformat", page: .font)
                     separator
                     row("个性化", symbol: "wand.and.stars", page: .personalization)
                 }
@@ -89,7 +89,9 @@ struct SettingsView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 17, weight: .medium))
                     .frame(width: 42, height: 42)
+                    .foregroundStyle(ChatTheme.text)
                     .background(ChatTheme.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(ChatTheme.line, lineWidth: 0.7))
             }
             .accessibilityLabel("关闭设置")
             .accessibilityIdentifier("settings.close")
@@ -168,7 +170,7 @@ struct SettingsView: View {
         case .font:
             Form {
                 Slider(value: $fontScale, in: 0.85...1.5, step: 0.05)
-                Text("当前大小：\(Int(fontScale * 100))%")
+                Text("字号偏好：\(Int(fontScale * 100))%（按系统动态字体档位显示）")
                 Button("恢复系统大小") { fontScale = 1.0 }
             }
         case .personalization:
