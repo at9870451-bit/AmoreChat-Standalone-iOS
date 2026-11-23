@@ -47,6 +47,18 @@ translations={
 '永久清除':('Delete Permanently','永久清除'),
 '试听':('Preview Voice','試聽'),'停止试听':('Stop Preview','停止試聽'),
 '系统默认':('System Default','系統預設'),
+'AI 模型':('AI Models','AI 模型'),'添加模型 / 服务商':('Add Model / Provider','新增模型／服務商'),
+'模型与服务商':('Models & Providers','模型與服務商'),'添加模型':('Add Model','新增模型'),
+'模型 ID':('Model ID','模型 ID'),'服务商':('Provider','服務商'),
+'API 密钥':('API Key','API 密鑰'),'连接地址':('Endpoint','連線位址'),
+'已保存的模型':('Saved Models','已儲存的模型'),'当前使用':('Active Model','目前使用'),
+'未配置':('Not Configured','未設定'),'选择模型':('Choose Model','選擇模型'),
+'联网搜索可能产生额外费用':('Web Search May Cost Extra','網路搜尋可能產生額外費用'),
+'开启联网搜索':('Enable Web Search','開啟網路搜尋'),
+'请先在设置中添加可用的 AI 模型。':('Add an AI model in Settings first.','請先在設定中新增可用的 AI 模型。'),
+'加载更早的消息':('Load Earlier Messages','載入更早的訊息'),
+'从此处删除':('Delete from Here','從這裡刪除'),
+'重新生成':('Regenerate','重新生成'),
 }
 strings={}
 for key,(english,traditional) in translations.items():

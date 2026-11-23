@@ -19,6 +19,8 @@ struct RootView: View {
     @Bindable var reader: SpeechReader
     @State private var sidebarOpen = false
     @State private var settingsOpen = false
+    @State private var modelSettingsOpen = false
+    @State private var keyboardDismissSignal = 0
     @AppStorage("standalone.appearance") private var appearance = "system"
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
@@ -61,7 +63,7 @@ struct RootView: View {
                         TranscriptView(controller: controller, reader: reader,
                                        onReadAloud: { text in
                             if !readerMuted { reader.read(text, voiceID: readerVoiceID) }
-                        })
+                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 })
                     }
                     ComposerView(controller: controller, onSpeech: {
                         Task {
@@ -74,7 +76,7 @@ struct RootView: View {
                                 speech.transcript = ""
                             } else { await speech.toggle() }
                         }
-                    })
+                    }, dismissKeyboardSignal: keyboardDismissSignal)
                     if speech.isRecording || !speech.transcript.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "waveform")
@@ -128,6 +130,9 @@ struct RootView: View {
         .sheet(isPresented: $settingsOpen) {
             NavigationStack { SettingsView(controller: controller) }
         }
+        .sheet(isPresented: $modelSettingsOpen) {
+            NavigationStack { ModelSettingsView(controller: controller) }
+        }
         .alert("语音输入", isPresented: Binding(
             get: { speech.errorText != nil },
             set: { if !$0 { speech.errorText = nil } }
@@ -141,6 +146,7 @@ struct RootView: View {
     private var header: some View {
         HStack(spacing: 12) {
             Button {
+                keyboardDismissSignal &+= 1
                 withAnimation(.easeInOut(duration: 0.27)) { sidebarOpen.toggle() }
             } label: {
                 Image(systemName: "line.3.horizontal.decrease")
@@ -152,9 +158,23 @@ struct RootView: View {
             .accessibilityLabel("打开历史对话")
             .accessibilityIdentifier("root.sidebar.open")
             Spacer(minLength: 0)
-            if !controller.messages.isEmpty {
-                Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
-                    .font(.subheadline.weight(.semibold)).lineLimit(1)
+            if !controller.messages.isEmpty || controller.selectedModelName != nil {
+                Button { modelSettingsOpen = true } label: {
+                    VStack(spacing: 2) {
+                        if !controller.messages.isEmpty {
+                            Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
+                                .font(.subheadline.weight(.semibold)).lineLimit(1)
+                        }
+                        if let name = controller.selectedModelName {
+                            Text(name).font(.caption).foregroundStyle(ChatTheme.muted).lineLimit(1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("选择模型")
+                .accessibilityIdentifier("root.model.select")
             }
             Spacer(minLength: 0)
             HStack(spacing: 1) {

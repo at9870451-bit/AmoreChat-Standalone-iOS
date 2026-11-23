@@ -8,12 +8,14 @@ import UIKit
 struct ComposerView: View {
     @Bindable var controller: ChatController
     let onSpeech: () -> Void
+    var dismissKeyboardSignal: Int = 0
 
     @FocusState private var messageFocused: Bool
     @State private var attachmentsOpen = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var showingCamera = false
     @State private var showingFileImporter = false
+    @State private var confirmPaidSearch = false
     @State private var inputError: String?
 
     private var hasContent: Bool {
@@ -80,10 +82,24 @@ struct ComposerView: View {
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
                             modeChip("深度思考", symbol: "atom", isOn: controller.thinkingEnabled) {
-                                controller.thinkingEnabled.toggle()
+                                guard !controller.isGenerating else { return }
+                                if controller.thinkingEnabled { controller.thinkingEnabled = false }
+                                else if !controller.backendReady {
+                                    controller.errorText = "请先在设置中添加可用的 AI 模型。"
+                                } else if !controller.supportsThinking {
+                                    controller.errorText = "自定义服务商尚未配置可验证的思考模式协议。"
+                                } else { controller.thinkingEnabled = true }
                             }
                             modeChip("智能搜索", symbol: "globe", isOn: controller.webSearchEnabled) {
-                                controller.webSearchEnabled.toggle()
+                                guard !controller.isGenerating else { return }
+                                if controller.webSearchEnabled { controller.webSearchEnabled = false }
+                                else if !controller.backendReady {
+                                    controller.errorText = "请先在设置中添加可用的 AI 模型。"
+                                } else if !controller.supportsWebSearch {
+                                    controller.errorText = "当前服务商未提供已验证的联网搜索。请选择官方 OpenRouter 地址。"
+                                } else {
+                                    confirmPaidSearch = true
+                                }
                             }
                         }
                     }
@@ -141,6 +157,24 @@ struct ComposerView: View {
         .padding(.horizontal, 16)
         .padding(.bottom, attachmentsOpen ? 16 : 0)
         .background(ChatTheme.canvas)
+        .alert("联网搜索可能产生额外费用", isPresented: $confirmPaidSearch) {
+            Button("开启联网搜索") {
+                guard controller.backendReady && controller.supportsWebSearch && !controller.isGenerating else { return }
+                controller.webSearchEnabled = true
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只在你选用官方 OpenRouter API 时发送 web 插件请求；模型调用和搜索可能分别计费。后续每次发送时此模式仍会保持开启，直到你关闭。")
+        }
+        .onChange(of: controller.supportsThinking) { _, supported in
+            if !supported { controller.thinkingEnabled = false }
+        }
+        .onChange(of: controller.supportsWebSearch) { _, supported in
+            if !supported { controller.webSearchEnabled = false }
+        }
+        .onChange(of: dismissKeyboardSignal) { _, _ in
+            messageFocused = false
+        }
         .onChange(of: messageFocused) { _, focused in
             if focused && attachmentsOpen {
                 withAnimation(.easeInOut(duration: 0.22)) { attachmentsOpen = false }

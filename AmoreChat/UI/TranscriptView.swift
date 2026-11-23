@@ -7,6 +7,7 @@ struct TranscriptView: View {
     @Bindable var controller: ChatController
     @Bindable var reader: SpeechReader
     let onReadAloud: (String) -> Void
+    var onBackgroundTap: () -> Void = {}
     @State private var nearBottom = true
     @State private var visibleLimit = 80
     private let bottomID = "transcript-bottom"
@@ -68,6 +69,8 @@ struct TranscriptView: View {
                 .padding(.horizontal, 16).padding(.vertical, 22)
             }
             .background(ChatTheme.canvas)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded(onBackgroundTap))
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 90
             } action: { _, isAtBottom in nearBottom = isAtBottom }

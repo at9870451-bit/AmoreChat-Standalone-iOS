@@ -62,14 +62,14 @@ enum BackendChunk: Sendable {
     case reasoning(String)
 }
 
-/// Adapter seam for a later, documented backend. No invented URL or responses.
+/// Streams model text/reasoning from a selected user-provided service.
 protocol ChatBackend: Sendable {
     var isConfigured: Bool { get }
     func stream(messages: [ChatMessage], options: ChatOptions) async throws -> AsyncThrowingStream<BackendChunk, Error>
 }
 
 struct BackendUnavailable: LocalizedError {
-    var errorDescription: String? { "尚未接入后端。请先提供服务地址和 API 文档。" }
+    var errorDescription: String? { "尚未配置 AI 模型。请在设置中添加服务商地址、模型 ID 和 API Key。" }
 }
 
 struct UnconfiguredBackend: ChatBackend {

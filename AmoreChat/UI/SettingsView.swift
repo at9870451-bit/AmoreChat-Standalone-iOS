@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 private enum SettingsPage: String, Identifiable {
-    case account, data, language, appearance, font, personalization, voice, updates, agreement, help
+    case account, models, data, language, appearance, font, personalization, voice, updates, agreement, help
     var id: String { rawValue }
 }
 
@@ -27,6 +27,10 @@ struct SettingsView: View {
                     row("账户管理", symbol: "person.crop.circle", page: .account)
                     separator
                     row("数据管理", symbol: "externaldrive", page: .data)
+                }
+                section("AI 模型") {
+                    row("添加模型 / 服务商", symbol: "plus.circle",
+                        value: controller.selectedModelName ?? "未配置", page: .models)
                 }
                 section("应用") {
                     row("语言", symbol: "globe", value: languageName, page: .language)
@@ -143,7 +147,7 @@ struct SettingsView: View {
         switch appearance { case "light": return "浅色"; case "dark": return "深色"; default: return "系统" }
     }
     private func title(for page: SettingsPage) -> String {
-        switch page { case .account: "账户管理"; case .data: "数据管理"; case .language: "语言"
+        switch page { case .account: "账户管理"; case .models: "模型与服务商"; case .data: "数据管理"; case .language: "语言"
         case .appearance: "外观"; case .font: "字体大小"; case .personalization: "个性化"
         case .voice: "朗读音色"; case .updates: "检查更新"; case .agreement: "服务协议"
         case .help: "帮助与反馈" }
@@ -152,6 +156,7 @@ struct SettingsView: View {
     @ViewBuilder private func destination(_ page: SettingsPage) -> some View {
         switch page {
         case .account: accountPage
+        case .models: ModelSettingsView(controller: controller)
         case .data: DataManagementPage(controller: controller)
         case .language:
             List {
@@ -180,11 +185,11 @@ struct SettingsView: View {
         case .voice: VoiceSettingsPage()
         case .updates: UpdateCheckPage(version: version)
         case .agreement:
-            ScrollView { Text("当前版本仅提供本机离线会话和界面。没有接入服务器、账号、付费模型或联网搜索服务；数据保存在应用本机目录。附件和会话由你自行管理。未来接入后端时需要另行提供服务协议与隐私说明。")
+            ScrollView { Text("本应用可选用你自行添加的 AI 服务商：发送消息时，请求会直连所配置的 HTTPS API，模型服务商可能收费；仅 OpenRouter 官方地址的联网搜索选项会要求单独确认额外费用。会话和附件保存在本机，API Key 保存在 iOS 钥匙串，不提供云账号或同步。使用外部模型时还须遵守相应服务商的协议和隐私政策。本页不是第三方官方服务条款。")
                 .padding().frame(maxWidth: .infinity, alignment: .leading) }
         case .help:
             List {
-                ShareLink(item: "AmoreChat Standalone \(version) · iOS \(UIDevice.current.systemVersion) · 后端未配置") {
+                ShareLink(item: "AmoreChat Standalone \(version) · iOS \(UIDevice.current.systemVersion) · 模型配置数 \(ModelCatalog.shared.profiles.count)") {
                     Label("分享诊断概要", systemImage: "square.and.arrow.up") }
                 Link(destination: URL(string: "https://github.com/at9870451-bit/AmoreChat-Standalone-iOS/issues/new")!) {
                     Label("前往 GitHub 提交反馈", systemImage: "questionmark.bubble") }

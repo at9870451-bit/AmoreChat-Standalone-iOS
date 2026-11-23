@@ -38,7 +38,7 @@ final class ChatControllerTests: XCTestCase {
     @MainActor func testUnconfiguredBackendNeverFabricatesAnswer() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
-        let controller = ChatController(archive: ChatArchive(root: root))
+        let controller = ChatController(archive: ChatArchive(root: root), backend: UnconfiguredBackend())
         await controller.load()
         controller.newChat()
         controller.draft = "你好"

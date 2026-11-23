@@ -42,20 +42,52 @@ import Observation
     var isLoading = true
     var errorText: String?
     var backendReady: Bool { backend.isConfigured }
+    var selectedModelName: String? { injectedBackend ? nil : catalog.active?.label }
+    var supportsThinking: Bool { injectedBackend || (catalog.active != nil && catalog.active?.provider != .custom) }
+    var supportsWebSearch: Bool {
+        guard !injectedBackend, let profile = catalog.active,
+              profile.provider == .openRouter,
+              let components = URLComponents(string: profile.baseURL) else { return false }
+        return components.scheme?.lowercased() == "https"
+            && components.host?.lowercased() == "openrouter.ai"
+    }
     var messages: [ChatMessage] {
         guard let currentID else { return [] }
         return sessions.first(where: { $0.id == currentID })?.messages ?? []
     }
 
     private let archive: ChatArchive
-    private let backend: any ChatBackend
+    private let catalog: ModelCatalog
+    private let injectedBackend: Bool
+    private var backend: any ChatBackend
     private var streamTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
 
-    init(archive: ChatArchive = ChatArchive(), backend: any ChatBackend = UnconfiguredBackend()) {
+    init(archive: ChatArchive = ChatArchive(), backend: (any ChatBackend)? = nil,
+         catalog: ModelCatalog = .shared) {
         self.archive = archive
-        self.backend = backend
+        self.catalog = catalog
+        self.injectedBackend = backend != nil
+        self.backend = backend ?? UnconfiguredBackend()
+        if backend == nil { refreshBackend() }
         Task { await load() }
+    }
+
+    func refreshBackend() {
+        guard !injectedBackend else { return }
+        guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
+        guard let profile = catalog.active,
+              let key = catalog.apiKey(for: profile.id), !key.isEmpty else {
+            backend = UnconfiguredBackend()
+            return
+        }
+        backend = OpenAICompatibleBackend(profile: profile, apiKey: key)
+    }
+
+    func selectModel(_ id: UUID) {
+        guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
+        catalog.select(id)
+        refreshBackend()
     }
 
     func load() async {
