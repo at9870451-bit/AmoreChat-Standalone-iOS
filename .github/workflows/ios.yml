@@ -10,7 +10,7 @@ permissions:
 jobs:
   ios:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode
@@ -23,5 +23,22 @@ jobs:
         run: xcodegen generate --spec project.yml
       - name: Build for iOS Simulator
         run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-      - name: Run unit tests
-        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO test
+      - name: Run unit and UI tests
+        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'platform=iOS Simulator,name=iPhone 17' -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
+      - name: Build iOS device archive
+        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -configuration Release -derivedDataPath "$RUNNER_TEMP/amorechat-device" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          ditto "$RUNNER_TEMP/amorechat-device/Build/Products/Release-iphoneos/AmoreChatStandalone.app" Payload/AmoreChatStandalone.app
+          zip -qry AmoreChat-Standalone-0.1.0-unsigned.ipa Payload
+          unzip -tq AmoreChat-Standalone-0.1.0-unsigned.ipa
+          shasum -a 256 AmoreChat-Standalone-0.1.0-unsigned.ipa > SHA256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: standalone-ios-unsigned
+          path: |
+            AmoreChat-Standalone-0.1.0-unsigned.ipa
+            SHA256.txt
+          if-no-files-found: error
+          retention-days: 30

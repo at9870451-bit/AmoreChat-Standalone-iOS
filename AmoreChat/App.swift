@@ -117,6 +117,7 @@ struct RootView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("打开历史对话")
+            .accessibilityIdentifier("root.sidebar.open")
             Spacer(minLength: 0)
             VStack(spacing: 2) {
                 Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
@@ -135,6 +136,7 @@ struct RootView: View {
                     .contentShape(Rectangle())
             }
             .accessibilityLabel("新建对话")
+            .accessibilityIdentifier("root.chat.new")
             Menu {
                 Button("设置", systemImage: "gearshape") { settingsOpen = true }
                 Button("搜索历史", systemImage: "magnifyingglass") {

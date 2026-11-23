@@ -108,6 +108,7 @@ struct ComposerView: View {
                 .foregroundStyle(ChatTheme.text)
                 .frame(minHeight: 34, alignment: .topLeading)
                 .accessibilityLabel("Message")
+                .accessibilityIdentifier("composer.message")
                 .accessibilityHint(controller.backendReady
                     ? "Type a message to send" : "Message is saved but sending requires a connection")
 
@@ -191,6 +192,7 @@ struct ComposerView: View {
                     }
                     .disabled(!canSend)
                     .accessibilityLabel("Send message")
+                    .accessibilityIdentifier("composer.send")
                     .accessibilityHint(!controller.backendReady
                         ? "Unavailable until a backend is connected"
                         : (hasContent ? "Send the message and attachments" : "Enter a message or attach a file"))

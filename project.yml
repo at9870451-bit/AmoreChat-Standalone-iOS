@@ -36,6 +36,16 @@ targets:
         NSMicrophoneUsageDescription: 仅在您主动录入语音时使用麦克风。
         NSCameraUsageDescription: 仅在您主动选择拍照附件时使用相机。
         NSPhotoLibraryUsageDescription: 仅在您主动选择相册图片时读取照片。
+  AmoreChatStandaloneUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: AmoreChatStandalone
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
   AmoreChatStandaloneTests:
     type: bundle.unit-test
     platform: iOS
@@ -54,3 +64,4 @@ schemes:
     test:
       targets:
         - AmoreChatStandaloneTests
+        - AmoreChatStandaloneUITests
