@@ -11,8 +11,9 @@ import Security
     private(set) var activeID: UUID?
     var active: ModelProfile? { profiles.first(where: { $0.id == activeID }) }
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, secrets: any ModelCredentialStore = ModelSecrets()) {
         self.defaults = defaults
+        self.secrets = secrets
         if let data = defaults.data(forKey: storageKey),
            let saved = try? JSONDecoder().decode(Snapshot.self, from: data) {
             profiles = saved.profiles
@@ -20,6 +21,7 @@ import Security
         }
     }
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let secrets: any ModelCredentialStore
 
     func save(_ profile: ModelProfile, apiKey: String) throws {
         let label = profile.label.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -28,7 +30,7 @@ import Security
         guard !model.isEmpty else { throw ModelConfigError.invalidModel }
         _ = try ModelEndpoint.url(profile, suffix: "chat/completions")
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !key.isEmpty { try ModelSecrets.save(key, for: profile.id) }
+        if !key.isEmpty { try secrets.save(key, for: profile.id) }
         else if self.apiKey(for: profile.id) == nil { throw ModelConfigError.missingKey }
         var profile = profile
         profile.label = label
@@ -43,7 +45,7 @@ import Security
     func remove(_ id: UUID) {
         guard profiles.contains(where: { $0.id == id }) else { return }
         profiles.removeAll { $0.id == id }
-        ModelSecrets.remove(for: id)
+        secrets.remove(for: id)
         if activeID == id { activeID = profiles.first?.id }
         persist()
     }
@@ -52,7 +54,7 @@ import Security
         activeID = id
         persist()
     }
-    func apiKey(for id: UUID) -> String? { ModelSecrets.read(for: id) }
+    func apiKey(for id: UUID) -> String? { secrets.read(for: id) }
 
     func fetchModels(for profile: ModelProfile, apiKey: String) async throws -> [String] {
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,9 +95,9 @@ final class ModelNoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendab
     }
 }
 
-private enum ModelSecrets {
-    private static let service = "app.amorechat.standalone.models"
-    static func read(for id: UUID) -> String? {
+@MainActor private struct ModelSecrets: ModelCredentialStore {
+    private let service = "app.amorechat.standalone.models"
+    func read(for id: UUID) -> String? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString,
             kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
@@ -104,7 +106,7 @@ private enum ModelSecrets {
               let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
-    static func save(_ secret: String, for id: UUID) throws {
+    func save(_ secret: String, for id: UUID) throws {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
         let value = Data(secret.utf8)
@@ -117,7 +119,7 @@ private enum ModelSecrets {
         let insert = SecItemAdd(item as CFDictionary, nil)
         guard insert == errSecSuccess else { throw ModelConfigError.keychain(insert) }
     }
-    static func remove(for id: UUID) {
+    func remove(for id: UUID) {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service, kSecAttrAccount as String: id.uuidString]
         SecItemDelete(query as CFDictionary)

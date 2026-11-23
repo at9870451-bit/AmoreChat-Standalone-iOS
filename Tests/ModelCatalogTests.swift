@@ -1,12 +1,19 @@
 import XCTest
 @testable import AmoreChatStandalone
 
+@MainActor private final class VolatileTestSecrets: ModelCredentialStore {
+    private var values: [UUID: String] = [:]
+    func read(for id: UUID) -> String? { values[id] }
+    func save(_ value: String, for id: UUID) throws { values[id] = value }
+    func remove(for id: UUID) { values.removeValue(forKey: id) }
+}
+
 final class ModelCatalogTests: XCTestCase {
     @MainActor func testStoreSelectRemoveAndDoNotPersistSecret() throws {
         let suite = "standalone.test.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let catalog = ModelCatalog(defaults: defaults)
+        let catalog = ModelCatalog(defaults: defaults, secrets: VolatileTestSecrets())
         let a = ModelProfile(label: "测试直连", provider: .deepSeek,
                              modelID: "fixture-model", appendV1: false)
         let b = ModelProfile(label: "备用", provider: .openRouter,

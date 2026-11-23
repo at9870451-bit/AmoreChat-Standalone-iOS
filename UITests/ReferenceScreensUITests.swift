@@ -34,7 +34,16 @@ final class ReferenceScreensUITests: XCTestCase {
         XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["settings.row.account"].exists)
         XCTAssertTrue(app.buttons["settings.row.data"].exists)
+        XCTAssertTrue(app.buttons["settings.row.models"].exists)
         capture(app, name: "04-settings")
+        app.buttons["settings.row.models"].tap()
+        XCTAssertTrue(app.buttons["model.add.empty"].waitForExistence(timeout: 8))
+        app.buttons["model.add.empty"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)
+            .matching(identifier: "model.editor.apiKey").firstMatch.waitForExistence(timeout: 8))
+        capture(app, name: "05-add-model")
+        app.buttons["model.editor.cancel"].tap()
+        app.buttons["model.close"].tap()
         app.buttons["settings.close"].tap()
     }
 }
