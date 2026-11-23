@@ -64,9 +64,9 @@ import Observation
     private var saveTask: Task<Void, Never>?
 
     init(archive: ChatArchive = ChatArchive(), backend: (any ChatBackend)? = nil,
-         catalog: ModelCatalog = .shared) {
+         catalog: ModelCatalog? = nil) {
         self.archive = archive
-        self.catalog = catalog
+        self.catalog = catalog ?? ModelCatalog.shared
         self.injectedBackend = backend != nil
         self.backend = backend ?? UnconfiguredBackend()
         if backend == nil { refreshBackend() }

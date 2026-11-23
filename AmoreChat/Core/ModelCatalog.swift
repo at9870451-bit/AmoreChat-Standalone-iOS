@@ -11,9 +11,9 @@ import Security
     private(set) var activeID: UUID?
     var active: ModelProfile? { profiles.first(where: { $0.id == activeID }) }
 
-    init(defaults: UserDefaults = .standard, secrets: any ModelCredentialStore = ModelSecrets()) {
+    init(defaults: UserDefaults = .standard, secrets: (any ModelCredentialStore)? = nil) {
         self.defaults = defaults
-        self.secrets = secrets
+        self.secrets = secrets ?? ModelSecrets()
         if let data = defaults.data(forKey: storageKey),
            let saved = try? JSONDecoder().decode(Snapshot.self, from: data) {
             profiles = saved.profiles
