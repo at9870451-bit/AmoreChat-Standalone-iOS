@@ -110,13 +110,12 @@ private enum ModelSecrets {
         let value = Data(secret.utf8)
         let update = SecItemUpdate(query as CFDictionary, [kSecValueData as String: value] as CFDictionary)
         if update == errSecSuccess { return }
-        guard update == errSecItemNotFound else { throw ModelConfigError.invalidResponse }
+        guard update == errSecItemNotFound else { throw ModelConfigError.keychain(update) }
         var item = query
         item[kSecValueData as String] = value
         item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
-            throw ModelConfigError.invalidResponse
-        }
+        let insert = SecItemAdd(item as CFDictionary, nil)
+        guard insert == errSecSuccess else { throw ModelConfigError.keychain(insert) }
     }
     static func remove(for id: UUID) {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,

@@ -283,6 +283,7 @@ import Observation
                     }
                     persist()
                 }
+                try Task.checkCancellation()
                 mutateReply(reply.id, in: id) { $0.status = .complete }
             } catch is CancellationError {
                 mutateReply(reply.id, in: id) { $0.status = .failed }

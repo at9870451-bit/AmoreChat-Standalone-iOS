@@ -87,7 +87,7 @@ struct OpenAICompatibleBackend: ChatBackend {
         return url
     }
 
-    private func requestBody(messages: [ChatMessage], options: ChatOptions) throws -> Data {
+    func requestBody(messages: [ChatMessage], options: ChatOptions) throws -> Data {
         var payload: [String: Any] = [
             "model": profile.modelID,
             "stream": true,

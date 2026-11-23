@@ -52,7 +52,7 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
 }
 
 enum ModelConfigError: LocalizedError {
-    case invalidURL, invalidModel, invalidLabel, missingKey, http(Int), invalidResponse
+    case invalidURL, invalidModel, invalidLabel, missingKey, http(Int), invalidResponse, keychain(Int32)
     var errorDescription: String? {
         switch self {
         case .invalidURL: "请输入有效的 HTTPS 服务地址，不能包含账号、密码、查询参数或片段。"
@@ -61,6 +61,7 @@ enum ModelConfigError: LocalizedError {
         case .missingKey: "请填写 API Key，密钥只保存在 iOS 钥匙串。"
         case .http(let status): "模型服务返回 HTTP \(status)，请核对地址、密钥和账号权限。"
         case .invalidResponse: "模型列表响应格式无效。"
+        case .keychain(let code): "iOS 钥匙串不可用（OSStatus \(code)），未保存此配置。"
         }
     }
 }
