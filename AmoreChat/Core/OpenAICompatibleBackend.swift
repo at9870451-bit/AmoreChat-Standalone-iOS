@@ -1,4 +1,7 @@
 import Foundation
+import UIKit
+import PDFKit
+import ImageIO
 
 /// One chat-completions transport. Credentials are never persisted or included in errors.
 struct OpenAICompatibleBackend: ChatBackend {
@@ -130,8 +133,8 @@ struct OpenAICompatibleBackend: ChatBackend {
             try Task.checkCancellation()
             guard attachment.localURL.isFileURL else { throw AdapterError.unsupportedAttachment }
             let mime = attachment.type.lowercased()
-            let imageTypes: Set<String> = ["image/jpeg", "image/png", "image/webp", "image/gif"]
-            let textTypes: Set<String> = ["text/plain", "text/markdown", "text/csv", "text/xml", "application/json", "application/xml", "text/x-python", "text/x-yaml"]
+            let imageTypes: Set<String> = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"]
+            let textTypes: Set<String> = ["text/plain", "text/markdown", "text/csv", "text/xml", "application/json", "application/xml", "text/x-python", "text/x-yaml", "application/pdf"]
             guard imageTypes.contains(mime) || textTypes.contains(mime) else { throw AdapterError.unsupportedAttachment }
             // Check the file size before allocating memory, then check again against races.
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: attachment.localURL.path),
@@ -144,11 +147,39 @@ struct OpenAICompatibleBackend: ChatBackend {
             else { throw AdapterError.attachmentReadFailure }
             totalBytes += bytes.count
             if imageTypes.contains(mime) {
-                guard Self.matchesImageSignature(bytes, mime: mime) else { throw AdapterError.unsupportedAttachment }
-                images.append(["type": "image_url", "image_url": ["url": "data:\(mime);base64,\(bytes.base64EncodedString())"]])
+                let uploadBytes: Data
+                let uploadType: String
+                if mime == "image/heic" || mime == "image/heif" {
+                    guard let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                          let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                          let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                          width > 0, height > 0, width <= 8192, height <= 8192,
+                          width * height <= 25_000_000,
+                          let image = UIImage(data: bytes),
+                          let converted = image.jpegData(compressionQuality: 0.82),
+                          converted.count <= 8 * 1_024 * 1_024 else {
+                        throw AdapterError.unsupportedAttachment
+                    }
+                    uploadBytes = converted; uploadType = "image/jpeg"
+                } else {
+                    guard Self.matchesImageSignature(bytes, mime: mime) else { throw AdapterError.unsupportedAttachment }
+                    uploadBytes = bytes; uploadType = mime
+                }
+                images.append(["type": "image_url", "image_url": ["url": "data:\(uploadType);base64,\(uploadBytes.base64EncodedString())"]])
             } else {
-                guard let content = String(data: bytes, encoding: .utf8), !content.contains("\0")
-                else { throw AdapterError.unsupportedAttachment }
+                let content: String
+                if mime == "application/pdf" {
+                    guard bytes.starts(with: Array("%PDF-".utf8)),
+                          let document = PDFDocument(data: bytes), document.pageCount <= 100,
+                          let extracted = document.string, !extracted.isEmpty,
+                          extracted.count <= 60_000 else { throw AdapterError.unsupportedAttachment }
+                    content = extracted
+                } else {
+                    guard let decoded = String(data: bytes, encoding: .utf8), !decoded.contains("\0")
+                    else { throw AdapterError.unsupportedAttachment }
+                    content = decoded
+                }
                 let name = String(attachment.name.prefix(100)).replacingOccurrences(of: "\n", with: " ")
                     .replacingOccurrences(of: "\r", with: " ")
                 text += "\n\n[Attached text file: \(name)]\n\(content)\n[/Attached text file]"
@@ -276,7 +307,7 @@ private enum AdapterError: LocalizedError {
         case .invalidKey: "请填写有效的 API Key。"
         case .emptyConversation: "请先输入消息。"
         case .invalidRequest: "请求内容过大或格式无效。"
-        case .unsupportedAttachment: "附件格式不受支持：仅可发送 JPEG、PNG、WebP、GIF 和 UTF-8 文本。"
+        case .unsupportedAttachment: "附件不兼容：支持常见图片、UTF-8 文本或可提取文字的 PDF。扫描 PDF、Office 或加密文件暂不支持。"
         case .attachmentReadFailure: "附件读取失败或超过 8 MB 总限制。"
         case .unsupportedWebSearch: "当前服务商不支持网页搜索；请选用 OpenRouter 或关闭搜索。"
         case .unsupportedThinking: "自定义服务商未声明思考模式协议；请关闭深度思考。"

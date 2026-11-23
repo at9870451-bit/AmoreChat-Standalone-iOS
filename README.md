@@ -5,7 +5,7 @@
 ## 当前可用
 
 - 按用户四张参考图重排原生白底/深色蓝点缀：居中欢迎语、左抽屉、双图标顶栏、胶囊输入与拍照/相册/文件展开态、分组设置页。抽屉、新建/搜索实际消息内容/切换/重命名/置顶/删除会话与确认操作。
-- Application Support 目录中的本地 JSON 会话库（原子写入）、各会话草稿，以及沙盒中的图片/文件附件；使用系统相机、PhotosPicker、Files 导入和 Speech 框架语音转文字。
+- Application Support 目录中的本地 JSON 会话库（原子写入）、各会话草稿，以及沙盒中的图片/文件附件；使用系统相机、PhotosPicker、Files 导入和 Speech 框架语音转文字。模型请求支持 JPEG/PNG/WebP/GIF，HEIC 安全转 JPEG，可提取文字的 PDF 和 UTF-8 文本；超过 8MB 或无法解析的附件会在发送前明确报错，不会假称已上传。
 - 用户/助手区分、原生 Markdown 基本排版、常见语言代码着色、横向可滚动表格、有限 LaTeX→MathML 本地渲染（不能解析的公式原样展示），可展开的思考内容、消息复制/分享、仅本机的反馈记录。
 - 消息复制、分享、后缀删除是本机真实操作，TTS 可朗读已有回复。可在「设置 → 添加模型 / 服务商」输入自己的 HTTPS 接口、模型 ID 和 API Key（保存在 iOS 钥匙串），选择 DeepSeek、OpenAI、OpenRouter 或 Chat Completions 兼容地址；`ChatBackend` 使用 SSE 真实流式传输文本/思考内容，支持停止、失败、重试和重新生成。**未配置模型时发送禁用，不伪造 AI 回复。** 联网搜索仅对官方 OpenRouter 主机且用户明确确认可能额外计费后启用；其他服务商不伪装支持搜索。自定义 API 需兼容 Chat Completions，真实可用性取决于服务商。
 

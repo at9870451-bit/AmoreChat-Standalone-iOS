@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import XCTest
 @testable import AmoreChatStandalone
 
@@ -143,6 +144,26 @@ final class OpenAICompatibleBackendTests: XCTestCase {
             XCTFail("Unsupported binary should not be sent")
         } catch { XCTAssertTrue(error.localizedDescription.contains("附件")) }
         XCTAssertNil(StreamingURLProtocol.capturedRequest)
+    }
+
+    func testExtractsLocalPDFTextIntoActualRequest() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 200, height: 200))
+        let pdf = renderer.pdfData { context in
+            context.beginPage()
+            ("Sample PDF body" as NSString).draw(at: CGPoint(x: 20, y: 20),
+                withAttributes: [.font: UIFont.systemFont(ofSize: 18)])
+        }
+        try pdf.write(to: url)
+        let attachment = ChatAttachment(name: "sample.pdf", localURL: url, type: "application/pdf")
+        let body = try backend(profile()).requestBody(messages: [ChatMessage(role: .user,
+            content: "Please summarize", attachments: [attachment])], options: plain)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let list = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        let text = try XCTUnwrap(list.first?["content"] as? String)
+        XCTAssertTrue(text.contains("Sample PDF body"))
     }
 
     func testCancellingConsumerStopsURLSessionRequest() async throws {

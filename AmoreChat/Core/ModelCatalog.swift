@@ -115,7 +115,7 @@ final class ModelNoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendab
         guard update == errSecItemNotFound else { throw ModelConfigError.keychain(update) }
         var item = query
         item[kSecValueData as String] = value
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let insert = SecItemAdd(item as CFDictionary, nil)
         guard insert == errSecSuccess else { throw ModelConfigError.keychain(insert) }
     }
