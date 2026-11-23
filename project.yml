@@ -1,0 +1,56 @@
+name: AmoreChatStandalone
+options:
+  bundleIdPrefix: app.amorechat
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_CFBundleDisplayName: "AmoreChat"
+    INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "将您的语音转成输入文字，仅在您点击语音按钮后使用。"
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在您主动录入语音时使用麦克风。"
+    INFOPLIST_KEY_NSCameraUsageDescription: "仅在您主动选择拍照附件时使用相机。"
+    INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "仅在您主动选择相册图片时读取照片。"
+    INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+targets:
+  AmoreChatStandalone:
+    type: application
+    platform: iOS
+    sources:
+      - path: AmoreChat
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.amorechat.standalone
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGNING_ALLOWED: NO
+    info:
+      path: AmoreChat/Info.plist
+      properties:
+        CFBundleDisplayName: AmoreChat
+        UILaunchScreen: {}
+        NSSpeechRecognitionUsageDescription: 将您的语音转成输入文字，仅在您点击语音按钮后使用。
+        NSMicrophoneUsageDescription: 仅在您主动录入语音时使用麦克风。
+        NSCameraUsageDescription: 仅在您主动选择拍照附件时使用相机。
+        NSPhotoLibraryUsageDescription: 仅在您主动选择相册图片时读取照片。
+  AmoreChatStandaloneTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: AmoreChatStandalone
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  AmoreChatStandalone:
+    build:
+      targets:
+        AmoreChatStandalone: all
+    test:
+      targets:
+        - AmoreChatStandaloneTests

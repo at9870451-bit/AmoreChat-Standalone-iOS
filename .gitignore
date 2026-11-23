@@ -1,0 +1,9 @@
+AmoreChatStandalone.xcodeproj/
+DerivedData/
+*.xcresult
+.DS_Store
+.swiftpm/
+.build/
+*.ipa
+*.p12
+*.mobileprovision

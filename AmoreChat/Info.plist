@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDisplayName</key><string>AmoreChat</string>
+<key>UILaunchScreen</key><dict/>
+<key>NSSpeechRecognitionUsageDescription</key><string>将您的语音转成输入文字，仅在您点击语音按钮后使用。</string>
+<key>NSMicrophoneUsageDescription</key><string>仅在您主动录入语音时使用麦克风。</string>
+<key>NSCameraUsageDescription</key><string>仅在您主动选择拍照附件时使用相机。</string>
+<key>NSPhotoLibraryUsageDescription</key><string>仅在您主动选择相册图片时读取照片。</string>
+</dict></plist>
