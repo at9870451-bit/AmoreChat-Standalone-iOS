@@ -61,7 +61,8 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         // Deliberately split the UTF-8 event data across URLProtocol deliveries.
         let fixture = "data: {\"choices\":[{\"delta\":{\"reasoning\":\"思考\",\"content\":\"答案\"}}]}\r\n\r\ndata: [DONE]\r\n\r\n"
         let raw = Data(fixture.utf8)
-        StreamingURLProtocol.lines = [raw.prefix(10), raw.dropFirst(10).prefix(17), raw.dropFirst(27)].map(Data.init)
+        StreamingURLProtocol.lines = [Data(bytes: raw.prefix(10)), Data(bytes: raw.dropFirst(10).prefix(17)),
+                                      Data(bytes: raw.dropFirst(27))]
         let stream = try await backend(profile()).stream(messages: history,
             options: ChatOptions(deepThinking: true, webSearch: true))
         var reasoning = "", text = ""
