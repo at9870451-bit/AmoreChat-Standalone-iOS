@@ -44,15 +44,16 @@ struct RootView: View {
                             } else { await speech.toggle() }
                         }
                     })
-                    if speech.isRecording {
+                    if speech.isRecording || !speech.transcript.isEmpty {
                         HStack(spacing: 8) {
                             Image(systemName: "waveform")
                             Text(speech.transcript.isEmpty ? "正在聆听，点麦克风完成" : speech.transcript)
                                 .lineLimit(2)
                             Spacer()
-                            Button("结束录音") {
+                            Button(speech.isRecording ? "结束录音" : "加入草稿") {
                                 speech.stop()
                                 if !speech.transcript.isEmpty {
+                                    if !controller.draft.isEmpty { controller.draft += " " }
                                     controller.draft += speech.transcript
                                     speech.transcript = ""
                                 }
@@ -78,7 +79,7 @@ struct RootView: View {
                         .frame(width: sidebarWidth)
                         .frame(maxHeight: .infinity)
                         .background(ChatTheme.canvas,
-                                    in: UnevenRoundedRectangle(topTrailingRadius: 22, bottomTrailingRadius: 22))
+                                    in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .transition(.move(edge: .leading).combined(with: .opacity))
                         .zIndex(1)
                 }

@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import UIKit
 
 @MainActor
 struct ComposerView: View {
@@ -9,6 +10,7 @@ struct ComposerView: View {
 
     @FocusState private var messageFocused: Bool
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var showingCamera = false
     @State private var showingFileImporter = false
     @State private var inputError: String?
 
@@ -110,6 +112,21 @@ struct ComposerView: View {
                     ? "Type a message to send" : "Message is saved but sending requires a connection")
 
             HStack(spacing: 4) {
+                Button {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        showingCamera = true
+                    } else {
+                        inputError = "当前设备没有可用相机。"
+                    }
+                } label: {
+                    Image(systemName: "camera")
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.isGenerating)
+                .accessibilityLabel("拍照附件")
+
                 PhotosPicker(selection: $pickedPhoto, matching: .images) {
                     Image(systemName: "photo")
                         .frame(minWidth: 44, minHeight: 44)
@@ -189,6 +206,15 @@ struct ComposerView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraPicker { data in
+                showingCamera = false
+                if let data {
+                    Task { await controller.attachImage(data) }
+                }
+            }
+            .ignoresSafeArea()
+        }
         .onChange(of: pickedPhoto) { _, item in
             guard let item else { return }
             Task { @MainActor in

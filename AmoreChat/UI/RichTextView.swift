@@ -92,7 +92,8 @@ struct RichTextView: View {
                     .accessibilityLabel("复制代码")
             }.padding(.horizontal, 12).padding(.vertical, 8)
             ScrollView(.horizontal) {
-                Text(code).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                Text(CodeHighlighter.render(code, language: language))
+                    .font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: false).padding(12)
             }
         }.background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 12))

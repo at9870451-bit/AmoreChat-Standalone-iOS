@@ -40,12 +40,15 @@ struct ChatSession: Codable, Identifiable, Sendable, Equatable {
     var updatedAt: Date
     var isPinned: Bool
     var draft: String
+    var draftAttachments: [ChatAttachment]
     var messages: [ChatMessage]
 
     init(id: UUID = UUID(), title: String = "新对话", createdAt: Date = .now,
-         updatedAt: Date = .now, isPinned: Bool = false, draft: String = "", messages: [ChatMessage] = []) {
+         updatedAt: Date = .now, isPinned: Bool = false, draft: String = "",
+         draftAttachments: [ChatAttachment] = [], messages: [ChatMessage] = []) {
         self.id = id; self.title = title; self.createdAt = createdAt
-        self.updatedAt = updatedAt; self.isPinned = isPinned; self.draft = draft; self.messages = messages
+        self.updatedAt = updatedAt; self.isPinned = isPinned; self.draft = draft
+        self.draftAttachments = draftAttachments; self.messages = messages
     }
 }
 

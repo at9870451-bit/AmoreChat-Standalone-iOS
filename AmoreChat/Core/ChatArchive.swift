@@ -46,9 +46,18 @@ actor ChatArchive {
         guard !data.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
         try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
         let id = UUID()
-        let destination = mediaURL.appendingPathComponent(id.uuidString).appendingPathExtension("png")
+        let bytes = [UInt8](data.prefix(16))
+        let type: (ext: String, mime: String)
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { type = ("png", "image/png") }
+        else if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { type = ("jpg", "image/jpeg") }
+        else if bytes.starts(with: [0x47, 0x49, 0x46]) { type = ("gif", "image/gif") }
+        else if bytes.count >= 12 && Array(bytes[0..<4]) == [0x52, 0x49, 0x46, 0x46]
+                && Array(bytes[8..<12]) == [0x57, 0x45, 0x42, 0x50] { type = ("webp", "image/webp") }
+        else if bytes.count >= 12 && Array(bytes[4..<8]) == [0x66, 0x74, 0x79, 0x70] { type = ("heic", "image/heic") }
+        else { throw CocoaError(.fileReadCorruptFile) }
+        let destination = mediaURL.appendingPathComponent(id.uuidString).appendingPathExtension(type.ext)
         try data.write(to: destination, options: .atomic)
-        return ChatAttachment(id: id, name: "图片.png", localURL: destination, type: "image/png")
+        return ChatAttachment(id: id, name: "图片.\(type.ext)", localURL: destination, type: type.mime)
     }
 
     /// Remove only archive-owned files, never an arbitrary file URL from a message.

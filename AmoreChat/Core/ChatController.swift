@@ -6,6 +6,13 @@ import Observation
     var currentID: UUID?
     var draft = "" {
         didSet {
+            if currentID == nil, !draft.isEmpty {
+                let session = ChatSession(draft: draft)
+                sessions.insert(session, at: 0)
+                currentID = session.id
+                persist()
+                return
+            }
             guard let id = currentID, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
             if sessions[index].draft != draft {
                 sessions[index].draft = draft
@@ -13,7 +20,22 @@ import Observation
             }
         }
     }
-    var attachments: [ChatAttachment] = []
+    var attachments: [ChatAttachment] = [] {
+        didSet {
+            if currentID == nil, !attachments.isEmpty {
+                let session = ChatSession(draftAttachments: attachments)
+                sessions.insert(session, at: 0)
+                currentID = session.id
+                persist()
+                return
+            }
+            guard let id = currentID, let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+            if sessions[index].draftAttachments != attachments {
+                sessions[index].draftAttachments = attachments
+                persist()
+            }
+        }
+    }
     var thinkingEnabled = false
     var webSearchEnabled = false
     var isGenerating = false
@@ -39,11 +61,20 @@ import Observation
     func load() async {
         defer { isLoading = false }
         do {
-            let stored = try await archive.load()
+            var stored = try await archive.load()
+            var recoveredInterruptedReply = false
+            for i in stored.indices {
+                for j in stored[i].messages.indices where stored[i].messages[j].status == .streaming {
+                    stored[i].messages[j].status = .failed
+                    recoveredInterruptedReply = true
+                }
+            }
             if sessions.isEmpty {
                 sessions = stored.sorted(by: order)
                 currentID = sessions.first?.id
                 draft = sessions.first?.draft ?? ""
+                attachments = sessions.first?.draftAttachments ?? []
+                if recoveredInterruptedReply { persist() }
             }
         } catch {
             errorText = "读取本地会话失败：\(error.localizedDescription)"
@@ -71,7 +102,7 @@ import Observation
         guard sessions.contains(where: { $0.id == id }) else { return }
         currentID = id
         draft = sessions.first(where: { $0.id == id })?.draft ?? ""
-        attachments = []
+        attachments = sessions.first(where: { $0.id == id })?.draftAttachments ?? []
         errorText = nil
     }
 
@@ -90,10 +121,14 @@ import Observation
     func delete(_ id: UUID) {
         guard !isGenerating, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
         let removed = sessions.remove(at: i)
-        if currentID == id { currentID = sessions.first?.id; draft = ""; attachments = [] }
+        if currentID == id {
+            currentID = sessions.first?.id
+            draft = sessions.first?.draft ?? ""
+            attachments = sessions.first?.draftAttachments ?? []
+        }
         persist()
         Task {
-            for attachment in removed.messages.flatMap(\.attachments) {
+            for attachment in removed.messages.flatMap(\.attachments) + removed.draftAttachments {
                 await archive.removeMedia(attachment)
             }
         }
@@ -120,9 +155,10 @@ import Observation
         guard backendReady else { errorText = BackendUnavailable().localizedDescription; return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        let selectedAttachments = attachments
         if currentID == nil { newChat() }
         guard let id = currentID else { return }
-        let message = ChatMessage(role: .user, content: text, attachments: attachments)
+        let message = ChatMessage(role: .user, content: text, attachments: selectedAttachments)
         let history = (sessions.first(where: { $0.id == id })?.messages ?? []) + [message]
         draft = ""; attachments = []; errorText = nil
         append(message, to: id)

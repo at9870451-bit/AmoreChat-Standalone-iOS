@@ -18,28 +18,33 @@ struct SidebarView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let matches = query.isEmpty
             ? controller.sessions
-            : controller.sessions.filter { $0.title.localizedCaseInsensitiveContains(query) }
+            : controller.sessions.filter {
+                $0.title.localizedCaseInsensitiveContains(query)
+                    || $0.messages.contains(where: { $0.content.localizedCaseInsensitiveContains(query) })
+            }
         return matches.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned }
             return $0.updatedAt > $1.updatedAt
         }
     }
 
+    private var pinned: [ChatSession] { matchingSessions.filter(\.isPinned) }
+
     private var today: [ChatSession] {
-        matchingSessions.filter { Calendar.current.isDateInToday($0.updatedAt) }
+        matchingSessions.filter { !$0.isPinned && Calendar.current.isDateInToday($0.updatedAt) }
     }
 
     private var recent: [ChatSession] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
         return matchingSessions.filter {
-            !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt >= cutoff
+            !$0.isPinned && !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt >= cutoff
         }
     }
 
     private var earlier: [ChatSession] {
         let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
         return matchingSessions.filter {
-            !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt < cutoff
+            !$0.isPinned && !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt < cutoff
         }
     }
 
@@ -101,6 +106,7 @@ struct SidebarView: View {
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 32)
                     } else {
+                        sessionGroup("Pinned", sessions: pinned)
                         sessionGroup("Today", sessions: today)
                         sessionGroup("Past 7 days", sessions: recent)
                         sessionGroup("Earlier", sessions: earlier)
