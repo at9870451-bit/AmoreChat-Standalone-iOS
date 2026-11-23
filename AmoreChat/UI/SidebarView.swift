@@ -1,236 +1,197 @@
 import SwiftUI
 
-@MainActor
-struct SidebarView: View {
+/// Every row is backed by ChatController's persisted sessions, never a mock timeline.
+@MainActor struct SidebarView: View {
     @Bindable var controller: ChatController
     let onClose: () -> Void
     let onNewChat: () -> Void
     let onSettings: () -> Void
-
-    @State private var searchText = ""
+    @AppStorage("standalone.profile.nickname") private var nickname = "访客"
+    @State private var search = ""
+    @State private var managing = false
     @State private var renameID: UUID?
     @State private var renameText = ""
-    @State private var showingRename = false
-    @State private var deleteID: UUID?
-    @State private var showingDelete = false
+    @State private var deletionID: UUID?
 
-    private var matchingSessions: [ChatSession] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matches = query.isEmpty
-            ? controller.sessions
-            : controller.sessions.filter {
-                $0.title.localizedCaseInsensitiveContains(query)
-                    || $0.messages.contains(where: { $0.content.localizedCaseInsensitiveContains(query) })
-            }
-        return matches.sorted {
+    private var matches: [ChatSession] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return controller.sessions.filter { session in
+            query.isEmpty || session.title.localizedCaseInsensitiveContains(query)
+                || session.messages.contains { $0.content.localizedCaseInsensitiveContains(query) }
+        }.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned }
             return $0.updatedAt > $1.updatedAt
         }
     }
-
-    private var pinned: [ChatSession] { matchingSessions.filter(\.isPinned) }
-
-    private var today: [ChatSession] {
-        matchingSessions.filter { !$0.isPinned && Calendar.current.isDateInToday($0.updatedAt) }
-    }
-
-    private var recent: [ChatSession] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
-        return matchingSessions.filter {
-            !$0.isPinned && !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt >= cutoff
-        }
-    }
-
-    private var earlier: [ChatSession] {
-        let cutoff = Calendar.current.date(byAdding: .day, value: -7, to: .now) ?? .distantPast
-        return matchingSessions.filter {
-            !$0.isPinned && !Calendar.current.isDateInToday($0.updatedAt) && $0.updatedAt < cutoff
-        }
+    private func bucket(_ session: ChatSession) -> Int {
+        if session.isPinned { return 0 }
+        if Calendar.current.isDateInToday(session.updatedAt) { return 1 }
+        if Calendar.current.isDateInYesterday(session.updatedAt) { return 2 }
+        let age = Date().timeIntervalSince(session.updatedAt)
+        if age < 7*86400 { return 3 }
+        if age < 30*86400 { return 4 }
+        return 5
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Chats")
-                    .font(.title2.bold())
-                    .foregroundStyle(ChatTheme.text)
-                Spacer()
+            HStack(spacing: 6) {
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 18))
+                        .foregroundStyle(ChatTheme.muted)
+                    TextField("搜索对话内容…", text: $search)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("sidebar.search")
+                    if !search.isEmpty {
+                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                            .accessibilityLabel("清除搜索")
+                    }
+                }
+                .padding(.horizontal, 12).frame(height: 48)
+                .background(ChatTheme.surface, in: Capsule())
                 Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
-                        .frame(minWidth: 44, minHeight: 44)
+                    Image(systemName: "line.3.horizontal.decrease")
+                        .frame(width: 40, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Close sidebar")
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-
-            Button {
-                onNewChat()
-                onClose()
-            } label: {
-                Label("New chat", systemImage: "square.and.pencil")
-                    .font(.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(ChatTheme.accentWash, in: RoundedRectangle(cornerRadius: ChatTheme.radius))
-            }
-            .foregroundStyle(ChatTheme.accent)
-            .accessibilityHint("Starts a new conversation")
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
+            .padding(.horizontal, 12).padding(.top, 12)
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(ChatTheme.muted)
-                TextField("Search chats", text: $searchText)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .accessibilityLabel("Search chats")
+                Button {
+                    onNewChat()
+                    if !controller.isGenerating { onClose() }
+                } label: {
+                    Label("新建对话", systemImage: "square.and.pencil")
+                        .font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 10)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("sidebar.new")
+                Menu {
+                    Button("整理要点") { fillPrompt("请帮我整理以下内容的要点：") }
+                    Button("解释概念") { fillPrompt("请解释以下概念，并举例说明：") }
+                    Button("编写文案") { fillPrompt("请帮我起草文案，主题是：") }
+                    Button("制定计划") { fillPrompt("请帮我制定一个计划：") }
+                } label: { Image(systemName: "sparkle.magnifyingglass").frame(width: 44, height: 44) }
+                .accessibilityLabel("快捷提问")
+                Button { managing.toggle() } label: {
+                    Image(systemName: managing ? "checkmark.circle" : "list.bullet.indent")
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel(managing ? "完成管理" : "管理对话")
+                .accessibilityIdentifier("sidebar.manage")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-
+            .padding(.horizontal, 18).padding(.top, 12)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    if matchingSessions.isEmpty {
-                        Text(searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                             ? "No chats yet. Start a new conversation."
-                             : "No chats match your search.")
-                            .font(.subheadline)
-                            .foregroundStyle(ChatTheme.muted)
-                            .frame(maxWidth: .infinity, alignment: .center)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if matches.isEmpty {
+                        Text(search.isEmpty ? "暂无历史对话" : "没有匹配的对话")
+                            .font(.subheadline).foregroundStyle(ChatTheme.muted)
                             .padding(.top, 32)
-                    } else {
-                        sessionGroup("Pinned", sessions: pinned)
-                        sessionGroup("Today", sessions: today)
-                        sessionGroup("Past 7 days", sessions: recent)
-                        sessionGroup("Earlier", sessions: earlier)
+                    }
+                    ForEach(0..<6, id: \.self) { group in
+                        let items = matches.filter { bucket($0) == group }
+                        if !items.isEmpty {
+                            Text(["置顶", "今天", "昨天", "7 天内", "30 天内", "更早"][group])
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(ChatTheme.muted)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, group == 0 ? 10 : 24)
+                                .padding(.bottom, 8)
+                                .accessibilityAddTraits(.isHeader)
+                            ForEach(items) { session in row(session) }
+                        }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 20).padding(.bottom, 14)
             }
-
-            Divider()
-            Button(action: onSettings) {
-                Label("Settings", systemImage: "gearshape")
-                    .font(.body)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .padding(.horizontal, 16)
+            .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: 30)).foregroundStyle(ChatTheme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nickname.isEmpty ? "访客" : nickname).lineLimit(1)
+                    Text("仅保存在本机").font(.caption).foregroundStyle(ChatTheme.muted)
+                }
+                Spacer()
+                Button(action: onSettings) { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                    .accessibilityLabel("打开设置")
+                    .accessibilityIdentifier("sidebar.settings")
             }
-            .foregroundStyle(ChatTheme.text)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 18)
+            .frame(height: 68)
         }
+        .foregroundStyle(ChatTheme.text)
         .background(ChatTheme.canvas)
-        .alert("Rename chat", isPresented: $showingRename) {
-            TextField("Chat name", text: $renameText)
-            Button("Cancel", role: .cancel) { renameID = nil }
-            Button("Save") {
-                let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if let id = renameID, !name.isEmpty { controller.rename(id, name) }
+        .alert("重命名对话", isPresented: Binding(
+            get: { renameID != nil }, set: { if !$0 { renameID = nil } }
+        )) {
+            TextField("对话名称", text: $renameText)
+            Button("取消", role: .cancel) { renameID = nil }
+            Button("保存") {
+                if let renameID { controller.rename(renameID, renameText) }
                 renameID = nil
             }
             .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        } message: {
-            Text("Choose a name for this conversation.")
-        }
-        .confirmationDialog("Delete chat?", isPresented: $showingDelete, titleVisibility: .visible) {
-            Button("Delete chat", role: .destructive) {
-                if let id = deleteID { controller.delete(id) }
-                deleteID = nil
+        } message: { Text("名称仅保存于本机。") }
+        .confirmationDialog("删除这段对话？", isPresented: Binding(
+            get: { deletionID != nil }, set: { if !$0 { deletionID = nil } }
+        ), titleVisibility: .visible) {
+            Button("删除对话", role: .destructive) {
+                if let deletionID { controller.delete(deletionID) }
+                deletionID = nil
             }
-            Button("Cancel", role: .cancel) { deleteID = nil }
-        } message: {
-            Text("This conversation will be removed.")
-        }
+            Button("取消", role: .cancel) { deletionID = nil }
+        } message: { Text("本机记录与对应附件将被移除，无法撤销。") }
     }
 
-    @ViewBuilder
-    private func sessionGroup(_ title: String, sessions: [ChatSession]) -> some View {
-        if !sessions.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(ChatTheme.muted)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 4)
-                    .accessibilityAddTraits(.isHeader)
-                ForEach(sessions) { session in
-                    sessionRow(session)
+    private func row(_ session: ChatSession) -> some View {
+        HStack(spacing: 0) {
+            Button {
+                controller.open(session.id)
+                if controller.currentID == session.id { onClose() }
+            } label: {
+                HStack(spacing: 8) {
+                    if session.isPinned {
+                        Image(systemName: "pin.fill")
+                            .font(.caption).foregroundStyle(ChatTheme.accent)
+                    }
+                    Text(session.title.isEmpty ? "新对话" : session.title)
+                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .font(.body)
+                .foregroundStyle(ChatTheme.text)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sidebar.session.\(session.id)")
+            .contextMenu {
+                Button("重命名", systemImage: "pencil") { renameID = session.id; renameText = session.title }
+                Button(session.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { controller.pin(session.id) }
+                Button("删除", systemImage: "trash", role: .destructive) { deletionID = session.id }
+            }
+            if managing {
+                Menu {
+                    Button("重命名", systemImage: "pencil") { renameID = session.id; renameText = session.title }
+                    Button(session.isPinned ? "取消置顶" : "置顶", systemImage: "pin") { controller.pin(session.id) }
+                    Button("删除", systemImage: "trash", role: .destructive) { deletionID = session.id }
+                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                .accessibilityLabel("管理 \(session.title)")
             }
         }
+        .padding(.leading, 3)
+        .frame(minHeight: 44)
+        .background(controller.currentID == session.id ? ChatTheme.surface : .clear,
+                    in: RoundedRectangle(cornerRadius: 10))
     }
-
-    private func sessionRow(_ session: ChatSession) -> some View {
-        let selected = controller.currentID == session.id
-        return Button {
-            controller.open(session.id)
-            onClose()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "bubble.left")
-                    .foregroundStyle(selected ? ChatTheme.accent : ChatTheme.muted)
-                    .frame(width: 22)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(session.title.isEmpty ? "Untitled chat" : session.title)
-                        .font(.subheadline.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(ChatTheme.text)
-                        .lineLimit(1)
-                    Text(session.updatedAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                        .font(.caption)
-                        .foregroundStyle(ChatTheme.muted)
-                }
-                Spacer(minLength: 4)
-                if session.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.caption)
-                        .foregroundStyle(ChatTheme.accent)
-                        .accessibilityHidden(true)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 11)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? ChatTheme.accentWash : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 12))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(session.title.isEmpty ? "Untitled chat" : session.title)\(session.isPinned ? ", pinned" : "")")
-        .accessibilityValue(selected ? "Current chat" : "")
-        .accessibilityHint("Open chat; additional actions are available")
-        .accessibilityAction(named: Text("Rename chat")) { beginRename(session) }
-        .accessibilityAction(named: Text(session.isPinned ? "Unpin chat" : "Pin chat")) {
-            controller.pin(session.id)
-        }
-        .accessibilityAction(named: Text("Delete chat")) { beginDelete(session) }
-        .contextMenu {
-            Button("Rename", systemImage: "pencil") { beginRename(session) }
-            Button(session.isPinned ? "Unpin" : "Pin", systemImage: "pin") {
-                controller.pin(session.id)
-            }
-            Button("Delete", systemImage: "trash", role: .destructive) {
-                beginDelete(session)
-            }
-        }
-    }
-
-    private func beginRename(_ session: ChatSession) {
-        renameID = session.id
-        renameText = session.title
-        showingRename = true
-    }
-
-    private func beginDelete(_ session: ChatSession) {
-        deleteID = session.id
-        showingDelete = true
+    private func fillPrompt(_ text: String) {
+        guard controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if controller.currentID == nil { controller.newChat() }
+        controller.draft = text
+        onClose()
     }
 }

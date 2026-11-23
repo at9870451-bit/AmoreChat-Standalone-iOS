@@ -134,6 +134,31 @@ import Observation
         }
     }
 
+    func exportSessions() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("AmoreChat-会话-\(UUID().uuidString).json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(sessions).write(to: url, options: .atomic)
+        return url
+    }
+
+    func deleteAllSessions() {
+        guard !isGenerating else { errorText = "请先停止生成，再清除会话。"; return }
+        let previous = sessions
+        currentID = nil
+        sessions = []
+        draft = ""
+        attachments = []
+        errorText = nil
+        persist()
+        Task {
+            for attachment in previous.flatMap({ $0.messages.flatMap(\.attachments) + $0.draftAttachments }) {
+                await archive.removeMedia(attachment)
+            }
+        }
+    }
+
     func attach(_ url: URL) async {
         do { attachments.append(try await archive.importFile(url)) }
         catch { errorText = "附件导入失败：\(error.localizedDescription)" }
@@ -174,6 +199,36 @@ import Observation
         guard history.last?.role == .user else { return }
         sessions[index].messages = history
         startResponse(in: id, history: history)
+    }
+
+    func regenerate() {
+        guard !isGenerating, backendReady, let id = currentID,
+              let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+        var history = sessions[index].messages
+        guard history.last?.role == .assistant else { return }
+        history.removeLast()
+        guard history.last?.role == .user else { return }
+        sessions[index].messages = history
+        errorText = nil
+        persist()
+        startResponse(in: id, history: history)
+    }
+
+    /// Delete a suffix, not one arbitrary message from model-facing history.
+    func deleteFromMessage(_ messageID: UUID) {
+        guard !isGenerating, let id = currentID,
+              let index = sessions.firstIndex(where: { $0.id == id }),
+              let offset = sessions[index].messages.firstIndex(where: { $0.id == messageID })
+        else { return }
+        let removed = Array(sessions[index].messages[offset...])
+        sessions[index].messages.removeSubrange(offset...)
+        sessions[index].updatedAt = .now
+        persist()
+        Task {
+            for attachment in removed.flatMap(\.attachments) {
+                await archive.removeMedia(attachment)
+            }
+        }
     }
 
     func stop() { streamTask?.cancel() }

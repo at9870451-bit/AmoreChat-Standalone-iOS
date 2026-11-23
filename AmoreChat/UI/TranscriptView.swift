@@ -5,8 +5,12 @@ import UIKit
 @MainActor
 struct TranscriptView: View {
     @Bindable var controller: ChatController
+    @Bindable var reader: SpeechReader
+    let onReadAloud: (String) -> Void
     @State private var nearBottom = true
+    @State private var visibleLimit = 80
     private let bottomID = "transcript-bottom"
+    private var visibleMessages: [ChatMessage] { Array(controller.messages.suffix(visibleLimit)) }
 
     private var revision: String {
         guard let last = controller.messages.last else { return "empty" }
@@ -14,40 +18,37 @@ struct TranscriptView: View {
     }
 
     var body: some View {
+        GeometryReader { viewport in
         ScrollViewReader { reader in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     if controller.messages.isEmpty {
-                        VStack(spacing: 16) {
-                            Image(systemName: "sparkle")
-                                .font(.system(size: 29, weight: .medium))
+                        VStack(spacing: 22) {
+                            Image(systemName: "fish.fill")
+                                .font(.system(size: 31, weight: .medium))
                                 .foregroundStyle(ChatTheme.accent)
-                                .frame(width: 64, height: 64)
-                                .background(ChatTheme.accentWash,
-                                            in: RoundedRectangle(cornerRadius: 18))
                                 .accessibilityHidden(true)
-                            Text("你好，我能帮你做些什么？")
-                                .font(.title2.weight(.semibold))
-                            if !controller.backendReady {
-                                Text("尚未接入后端，可以先保存草稿和本地会话。")
-                                    .font(.footnote)
-                                    .foregroundStyle(ChatTheme.muted)
-                            }
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 10)], spacing: 10) {
-                                prompt("整理要点", symbol: "list.bullet", value: "请帮我整理以下内容的要点：")
-                                prompt("解释概念", symbol: "lightbulb", value: "请解释以下概念，并举例说明：")
-                                prompt("编写文案", symbol: "square.and.pencil", value: "请帮我起草文案，主题是：")
-                                prompt("制定计划", symbol: "calendar", value: "请帮我制定一个计划：")
-                            }
-                            .padding(.top, 10)
+                            Text("你好，我能帮什么忙吗？")
+                                .font(.system(size: 21, weight: .semibold))
+                                .foregroundStyle(ChatTheme.text)
+                                .multilineTextAlignment(.center)
                         }
-                        .frame(maxWidth: 520)
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 85)
+                        .frame(height: max(230, viewport.size.height - 45), alignment: .center)
                         .accessibilityIdentifier("home.welcome")
                     }
-                    ForEach(controller.messages) { message in
-                        MessageRow(message: message)
+                    if controller.messages.count > visibleLimit {
+                        Button("加载更早的消息") { visibleLimit += 80 }
+                            .font(.footnote).foregroundStyle(ChatTheme.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    ForEach(visibleMessages) { message in
+                        MessageRow(message: message,
+                                   onReadAloud: onReadAloud,
+                                   onDeleteFrom: { controller.deleteFromMessage(message.id) },
+                                   onRegenerate: { controller.regenerate() },
+                                   canRegenerate: controller.backendReady && !controller.isGenerating
+                                       && controller.messages.last?.id == message.id && message.role == .assistant)
                             .id(message.id)
                     }
                     if let error = controller.errorText, !error.isEmpty {
@@ -90,32 +91,23 @@ struct TranscriptView: View {
                 if nearBottom { reader.scrollTo(bottomID, anchor: .bottom) }
             }
             .onChange(of: controller.currentID) { _, _ in
+                visibleLimit = 80
                 nearBottom = true
                 DispatchQueue.main.async { reader.scrollTo(bottomID, anchor: .bottom) }
             }
             .task { reader.scrollTo(bottomID, anchor: .bottom) }
         }
-    }
-    private func prompt(_ title: String, symbol: String, value: String) -> some View {
-        Button {
-            guard controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            if controller.currentID == nil { controller.newChat() }
-            controller.draft = value
-        } label: {
-            Label(title, systemImage: symbol)
-                .font(.subheadline)
-                .foregroundStyle(ChatTheme.accent)
-                .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
-                .padding(.horizontal, 12)
-                .background(ChatTheme.accentWash, in: RoundedRectangle(cornerRadius: 12))
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("仅填写草稿，不自动发送")
     }
 }
 
 private struct MessageRow: View {
     let message: ChatMessage
+    let onReadAloud: (String) -> Void
+    let onDeleteFrom: () -> Void
+    let onRegenerate: () -> Void
+    let canRegenerate: Bool
+    @State private var showDeleteConfirm = false
     @State private var reasoningOpen = false
     @AppStorage("standalone.chat.feedback.v1") private var feedbackBlob = "{}"
     private var isUser: Bool { message.role == .user }
@@ -150,6 +142,10 @@ private struct MessageRow: View {
                         .contextMenu {
                             Button("复制文本", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content }
                             ShareLink(item: message.content) { Label("分享文本", systemImage: "square.and.arrow.up") }
+                            if canRegenerate { Button("重新生成", systemImage: "arrow.clockwise", action: onRegenerate) }
+                            Button("从此处删除", systemImage: "trash", role: .destructive) {
+                                showDeleteConfirm = true
+                            }
                         }
                 } else if message.status == .streaming {
                     ProgressView().controlSize(.small).accessibilityLabel("正在生成回复")
@@ -180,6 +176,14 @@ private struct MessageRow: View {
                             .accessibilityLabel("分享消息")
                     }
                     if !isUser && message.status == .complete && !message.content.isEmpty {
+                        Button { onReadAloud(message.content) } label: {
+                            Image(systemName: "speaker.wave.2")
+                        }
+                        .accessibilityLabel("朗读回复")
+                        if canRegenerate {
+                            Button(action: onRegenerate) { Image(systemName: "arrow.clockwise") }
+                                .accessibilityLabel("重新生成")
+                        }
                         feedbackButton(1, "赞同", "hand.thumbsup")
                         feedbackButton(-1, "不赞同", "hand.thumbsdown")
                     }
@@ -195,6 +199,11 @@ private struct MessageRow: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
+        .confirmationDialog("删除这条及之后的消息？", isPresented: $showDeleteConfirm,
+                            titleVisibility: .visible) {
+            Button("删除后续消息", role: .destructive, action: onDeleteFrom)
+            Button("取消", role: .cancel) {}
+        } message: { Text("为了保持上下文一致，将从此处截断本机历史，无法撤销。") }
     }
 
     private func feedbackButton(_ value: Int, _ title: String, _ symbol: String) -> some View {

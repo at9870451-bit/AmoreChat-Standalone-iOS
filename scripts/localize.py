@@ -1,0 +1,56 @@
+import json
+from pathlib import Path
+root=Path(__file__).resolve().parents[1]
+translations={
+'你好，我能帮什么忙吗？':('Hello, how can I help?','你好，我能幫什麼忙嗎？'),
+'设置':('Settings','設定'),'关闭设置':('Close settings','關閉設定'),
+'账户管理':('Account','帳號管理'),'数据管理':('Data','資料管理'),
+'应用':('App','應用'),'语言':('Language','語言'),'外观':('Appearance','外觀'),
+'字体大小':('Text Size','字體大小'),'个性化':('Personalization','個人化'),
+'语音':('Voice','語音'),'朗读音色':('Read-Aloud Voice','朗讀音色'),
+'关于':('About','關於'),'检查更新':('Check for Updates','檢查更新'),
+'服务协议':('Terms of Service','服務協議'),'帮助与反馈':('Help and Feedback','幫助與回饋'),
+'退出登录':('Sign Out','登出'),'退出登录不可用':('Sign Out Unavailable','無法登出'),
+'新建对话':('New Chat','建立對話'),'打开历史对话':('Open Chats','開啟歷史對話'),
+'关闭侧边栏':('Close Sidebar','關閉側邊欄'),'搜索对话内容…':('Search chats...','搜尋對話內容…'),
+'快捷提问':('Quick Prompts','快捷提問'),'管理对话':('Manage Chats','管理對話'),
+'完成管理':('Done Managing','完成管理'),'置顶':('Pinned','釘選'),
+'今天':('Today','今天'),'昨天':('Yesterday','昨天'),'7 天内':('Last 7 Days','7 天內'),
+'30 天内':('Last 30 Days','30 天內'),'更早':('Earlier','更早'),
+'暂无历史对话':('No chats yet','暫無歷史對話'),
+'没有匹配的对话':('No matching chats','沒有符合的對話'),
+'仅保存在本机':('Stored on this device','僅儲存於本機'),
+'访客':('Guest','訪客'),'打开设置':('Open Settings','開啟設定'),
+'深度思考':('Deep Thinking','深度思考'),'智能搜索':('Web Search','智慧搜尋'),
+'发消息或按住说话':('Message or hold to speak','傳訊息或按住說話'),
+'消息':('Messages','訊息'),'拍照':('Camera','拍照'),
+'相册':('Photos','相簿'),'文件':('Files','檔案'),
+'添加附件':('Add Attachment','新增附件'),'收起附件选项':('Close Attachments','收起附件選項'),
+'语音输入':('Voice Input','語音輸入'),'发送消息':('Send Message','傳送訊息'),
+'停止生成':('Stop Generating','停止生成'),'未连接后端':('Backend not connected','尚未連接後端'),
+'关闭':('Close','關閉'),'开启':('Enable','開啟'),'取消':('Cancel','取消'),
+'保存':('Save','儲存'),'删除':('Delete','刪除'),'重命名':('Rename','重新命名'),
+'系统':('System','系統'),'浅色':('Light','淺色'),'深色':('Dark','深色'),
+'朗读回复':('Read Aloud','朗讀回覆'),'开启朗读':('Unmute Reading','開啟朗讀'),
+'静音朗读':('Mute Reading','靜音朗讀'),'完成':('Done','完成'),
+'拍照添加附件':('Take Photo','拍照新增附件'),
+'从相册选取照片':('Choose Photo','從相簿選取照片'),
+'从文件选取附件':('Choose File','從檔案選取附件'),
+'当前设备没有可用相机。':('Camera unavailable on this device.','目前裝置無法使用相機。'),
+'重命名对话':('Rename Chat','重新命名對話'),'删除对话':('Delete Chat','刪除對話'),
+'本机记录':('Local Data','本機記錄'),'导出':('Export','匯出'),
+'清理':('Cleanup','清理'),'会话':('Chats','對話'),'本机版本':('Installed Version','本機版本'),
+'重新检查':('Check Again','重新檢查'),'尚无正式发布版本。':('No public release yet.','尚無正式發佈版本。'),
+'分享会话 JSON':('Share Chats JSON','分享對話 JSON'),
+'准备会话 JSON':('Prepare Chats JSON','準備對話 JSON'),
+'清除本机所有会话和附件':('Delete All Local Chats and Attachments','清除本機所有對話與附件'),
+'永久清除':('Delete Permanently','永久清除'),
+'试听':('Preview Voice','試聽'),'停止试听':('Stop Preview','停止試聽'),
+'系统默认':('System Default','系統預設'),
+}
+strings={}
+for key,(english,traditional) in translations.items():
+ strings[key]={'localizations':{
+  locale:{'stringUnit':{'state':'translated','value':value}}
+  for locale,value in [('zh-Hans',key),('zh-Hant',traditional),('en',english)]}}
+(root/'AmoreChat/Localizable.xcstrings').write_text(json.dumps({'sourceLanguage':'zh-Hans','strings':strings,'version':'1.0'},ensure_ascii=False,indent=2)+'\n')

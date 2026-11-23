@@ -9,7 +9,7 @@ final class ChatSmokeUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 12))
         XCTAssertFalse(send.isEnabled, "Unconfigured backend must never fake a send")
         app.buttons["root.sidebar.open"].tap()
-        XCTAssertTrue(app.staticTexts["Chats"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["sidebar.search"].waitForExistence(timeout: 5))
         app.buttons["Close sidebar"].tap()
         XCTAssertTrue(app.buttons["root.chat.new"].waitForExistence(timeout: 5))
         app.buttons["root.chat.new"].tap()
