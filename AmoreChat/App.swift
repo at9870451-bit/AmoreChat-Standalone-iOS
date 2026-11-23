@@ -22,7 +22,7 @@ struct RootView: View {
     @AppStorage("standalone.appearance") private var appearance = "system"
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
-    @AppStorage("standalone.reader.muted") private var readerMuted = false
+    @AppStorage("standalone.reader.muted") private var readerMuted = true
     @AppStorage("standalone.speech.voiceID") private var readerVoiceID = ""
     @Environment(\.dynamicTypeSize) private var systemTextSize
 
