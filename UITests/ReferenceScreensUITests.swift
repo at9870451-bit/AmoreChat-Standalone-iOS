@@ -10,8 +10,10 @@ final class ReferenceScreensUITests: XCTestCase {
 
     func testReferenceScreensAndButtons() {
         let app = XCUIApplication()
+        app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                                "-standalone.appearance", "dark", "-standalone.appLanguage", "zh-Hans"]
         app.launch()
-        XCTAssertTrue(app.otherElements["home.welcome"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["home.welcome"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["composer.send"].isEnabled)
         capture(app, name: "01-home")
 
@@ -30,8 +32,8 @@ final class ReferenceScreensUITests: XCTestCase {
         capture(app, name: "03-history-drawer")
         app.buttons["sidebar.settings"].tap()
         XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["账户管理"].exists)
-        XCTAssertTrue(app.buttons["数据管理"].exists)
+        XCTAssertTrue(app.buttons["settings.row.account"].exists)
+        XCTAssertTrue(app.buttons["settings.row.data"].exists)
         capture(app, name: "04-settings")
         app.buttons["settings.close"].tap()
     }

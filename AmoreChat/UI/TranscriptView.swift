@@ -24,18 +24,15 @@ struct TranscriptView: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     if controller.messages.isEmpty {
                         VStack(spacing: 22) {
-                            Image(systemName: "fish.fill")
-                                .font(.system(size: 31, weight: .medium))
-                                .foregroundStyle(ChatTheme.accent)
-                                .accessibilityHidden(true)
+                            WhaleMark(size: 39)
                             Text("你好，我能帮什么忙吗？")
                                 .font(.system(size: 21, weight: .semibold))
                                 .foregroundStyle(ChatTheme.text)
                                 .multilineTextAlignment(.center)
+                                .accessibilityIdentifier("home.welcome")
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: max(230, viewport.size.height - 45), alignment: .center)
-                        .accessibilityIdentifier("home.welcome")
                     }
                     if controller.messages.count > visibleLimit {
                         Button("加载更早的消息") { visibleLimit += 80 }

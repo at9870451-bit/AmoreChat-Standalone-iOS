@@ -13,6 +13,30 @@ private struct LocalTestBackend: ChatBackend {
 }
 
 final class StreamingTests: XCTestCase {
+    @MainActor func testRegenerateAndDeleteFromMessage() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controller = ChatController(archive: ChatArchive(root: root), backend: LocalTestBackend())
+        await controller.load()
+        controller.newChat()
+        controller.draft = "测试"
+        controller.send()
+        for _ in 0..<40 {
+            if !controller.isGenerating { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertEqual(controller.messages.count, 2)
+        controller.regenerate()
+        for _ in 0..<40 {
+            if !controller.isGenerating { break }
+            try await Task.sleep(for: .milliseconds(30))
+        }
+        XCTAssertEqual(controller.messages.count, 2)
+        let first = try XCTUnwrap(controller.messages.first?.id)
+        controller.deleteFromMessage(first)
+        XCTAssertTrue(controller.messages.isEmpty)
+    }
+
     @MainActor func testRealAdapterStreamsAndStores() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
