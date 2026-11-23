@@ -1,4 +1,4 @@
-name: Standalone SwiftUI iOS
+name: Standalone iOS Device Build
 on:
   push:
     branches: [main]
@@ -21,23 +21,6 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate --spec project.yml
-      - name: Build for iOS Simulator
-        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-      - name: Run unit and UI tests
-        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'platform=iOS Simulator,name=iPhone 17' -parallel-testing-enabled NO -resultBundlePath "$RUNNER_TEMP/AmoreChatScreens.xcresult" CODE_SIGNING_ALLOWED=NO test
-      - name: Export UI screenshots
-        if: always()
-        run: |
-          mkdir -p screenshots
-          if [ -d "$RUNNER_TEMP/AmoreChatScreens.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/AmoreChatScreens.xcresult" --output-path screenshots || true
-          fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: standalone-ui-screenshots
-          path: screenshots/
-          if-no-files-found: warn
       - name: Build iOS device archive
         run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -configuration Release -derivedDataPath "$RUNNER_TEMP/amorechat-device" -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
       - name: Package unsigned IPA

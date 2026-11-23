@@ -1,0 +1,41 @@
+name: Standalone iOS UI Screens
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  visual:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer || true
+          xcodebuild -version
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+      - name: Build for iOS Simulator
+        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - name: Run unit and UI tests
+        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'platform=iOS Simulator,name=iPhone 17' -parallel-testing-enabled NO -resultBundlePath "$RUNNER_TEMP/AmoreChatScreens.xcresult" CODE_SIGNING_ALLOWED=NO test
+      - name: Export UI screenshots
+        if: always()
+        run: |
+          mkdir -p screenshots
+          if [ -d "$RUNNER_TEMP/AmoreChatScreens.xcresult" ]; then
+            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/AmoreChatScreens.xcresult" --output-path screenshots || true
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: standalone-ui-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+          retention-days: 30
