@@ -51,6 +51,8 @@ enum ChatTheme {
     static let settingsBackgroundUIColor = UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(white: 0.12, alpha: 1) : UIColor(white: 0.96, alpha: 1) }
     static let settingsBackground = Color(uiColor: settingsBackgroundUIColor)
+    static let drawerPreview = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.116, alpha: 1) : UIColor(white: 0.959, alpha: 1) })
 
     static let surface = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(white: 0.1529, alpha: 1) : UIColor(white: 0.9686, alpha: 1) })

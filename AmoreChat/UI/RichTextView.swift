@@ -5,9 +5,12 @@ import WebKit
 /// A deliberately small, offline Markdown renderer; unsupported LaTeX remains readable.
 struct RichTextView: View {
     let source: String
+    var isReasoning = false
+    @ScaledMetric(relativeTo: .body) private var bodySize: CGFloat = 16.5
+    @ScaledMetric(relativeTo: .subheadline) private var reasoningSize: CGFloat = 15.5
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 9) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { item in
                 switch item.element {
                 case .prose(let text): prose(text)
@@ -80,6 +83,8 @@ struct RichTextView: View {
                 formulaView(line, display: false)
             } else if !line.isEmpty {
                 Text((try? AttributedString(markdown: line)) ?? AttributedString(line))
+                    .font(.system(size: isReasoning ? reasoningSize : bodySize, weight: .regular))
+                    .lineSpacing(isReasoning ? 6 : 8)
                     .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
             } else { Spacer(minLength: 4).frame(height: 4) }
         }

@@ -36,18 +36,19 @@ import Observation
             }
         }
     }
-    var thinkingEnabled = false
-    var webSearchEnabled = false
+    private(set) var thinkingEnabled = false
+    private(set) var webSearchEnabled = false
     var isGenerating = false
     var isLoading = true
     var canRetry: Bool { backendReady && !isGenerating && messages.last?.status == .failed && messages.last?.role == .assistant }
     private(set) var completedReplyText: String?
     private(set) var isImporting = false
+    private(set) var isAttachingFile = false
     var errorText: String?
     var backendReady: Bool { backend.isConfigured }
-    var selectedModelName: String? { injectedBackend ? nil : catalog.active?.label }
-    var supportsThinking: Bool { injectedBackend || catalog.active?.allowsThinking == true }
-    var supportsWebSearch: Bool { !injectedBackend && catalog.active?.allowsWebSearch == true }
+    var selectedModelName: String? { injectedBackend ? injectedModelName : catalog.active?.label }
+    var supportsThinking: Bool { backendReady && backend.supportsThinking }
+    var supportsWebSearch: Bool { backendReady && backend.supportsWebSearch }
     var messages: [ChatMessage] {
         guard let currentID else { return [] }
         return sessions.first(where: { $0.id == currentID })?.messages ?? []
@@ -56,15 +57,17 @@ import Observation
     private let archive: ChatArchive
     private let catalog: ModelCatalog
     private let injectedBackend: Bool
+    private let injectedModelName: String?
     private var backend: any ChatBackend
     private var streamTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
 
     init(archive: ChatArchive = ChatArchive(), backend: (any ChatBackend)? = nil,
-         catalog: ModelCatalog? = nil) {
+         catalog: ModelCatalog? = nil, injectedModelName: String? = nil) {
         self.archive = archive
         self.catalog = catalog ?? ModelCatalog.shared
         self.injectedBackend = backend != nil
+        self.injectedModelName = injectedModelName
         self.backend = backend ?? UnconfiguredBackend()
         if backend == nil { refreshBackend() }
         Task { await load() }
@@ -83,6 +86,20 @@ import Observation
         webSearchEnabled = false
         if !supportsThinking || !backendReady { thinkingEnabled = false }
         errorText = nil
+    }
+
+    @discardableResult
+    func setThinking(_ enabled: Bool) -> Bool {
+        guard !isLoading, !isImporting, !isGenerating, !enabled || supportsThinking else { return false }
+        thinkingEnabled = enabled
+        return true
+    }
+
+    @discardableResult
+    func setWebSearch(_ enabled: Bool) -> Bool {
+        guard !isLoading, !isImporting, !isGenerating, !enabled || supportsWebSearch else { return false }
+        webSearchEnabled = enabled
+        return true
     }
 
     func selectModel(_ id: UUID) {
@@ -217,8 +234,24 @@ import Observation
     }
 
     func attach(_ url: URL) async {
-        do { attachments.append(try await archive.importFile(url)) }
-        catch { errorText = "附件导入失败：\(error.localizedDescription)" }
+        guard !isLoading, !isGenerating, !isImporting, !isAttachingFile else { return }
+        let sessionAtSelection = currentID
+        isAttachingFile = true
+        defer { isAttachingFile = false }
+        do {
+            let file = try await archive.importFile(url)
+            if !Task.isCancelled && currentID == sessionAtSelection && !isImporting && !isGenerating {
+                attachments.append(file)
+                errorText = nil
+            } else {
+                await archive.removeMedia(file)
+                if !Task.isCancelled { errorText = "会话已切换，请重新选择文件。" }
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            errorText = "附件导入失败：\(error.localizedDescription)"
+        }
     }
 
     func attachImage(_ data: Data) async {
@@ -233,7 +266,7 @@ import Observation
     }
 
     func send() {
-        guard !isImporting, !isLoading, !isGenerating else { return }
+        guard !isImporting, !isLoading, !isGenerating, !isAttachingFile else { return }
         guard backendReady else { errorText = BackendUnavailable().localizedDescription; return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }

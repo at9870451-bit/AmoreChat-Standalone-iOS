@@ -9,9 +9,11 @@ struct ChatAttachment: Codable, Identifiable, Sendable, Equatable {
     let name: String
     let localURL: URL
     let type: String
+    let byteCount: Int?
 
-    init(id: UUID = UUID(), name: String, localURL: URL, type: String) {
+    init(id: UUID = UUID(), name: String, localURL: URL, type: String, byteCount: Int? = nil) {
         self.id = id; self.name = name; self.localURL = localURL; self.type = type
+        self.byteCount = byteCount
     }
 }
 
@@ -66,7 +68,14 @@ enum BackendChunk: Sendable {
 /// Streams model text/reasoning from a selected user-provided service.
 protocol ChatBackend: Sendable {
     var isConfigured: Bool { get }
+    var supportsThinking: Bool { get }
+    var supportsWebSearch: Bool { get }
     func stream(messages: [ChatMessage], options: ChatOptions) async throws -> AsyncThrowingStream<BackendChunk, Error>
+}
+
+extension ChatBackend {
+    var supportsThinking: Bool { false }
+    var supportsWebSearch: Bool { false }
 }
 
 struct BackendUnavailable: LocalizedError {

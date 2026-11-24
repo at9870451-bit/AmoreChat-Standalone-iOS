@@ -31,15 +31,15 @@ actor ChatArchive {
     func importFile(_ source: URL, preferredName: String? = nil) throws -> ChatAttachment {
         try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
         let id = UUID()
-        let displayName = (preferredName ?? source.lastPathComponent).isEmpty ? "附件" : (preferredName ?? source.lastPathComponent)
+        let sourceName = source.lastPathComponent
+        let displayName = preferredName.flatMap { $0.isEmpty ? nil : $0 }
+            ?? (sourceName.isEmpty ? "附件" : sourceName)
         let safeExtension = source.pathExtension.lowercased()
         let destination = mediaURL.appendingPathComponent(id.uuidString)
             .appendingPathExtension(safeExtension.isEmpty ? "bin" : safeExtension)
-        let scoped = source.startAccessingSecurityScopedResource()
-        defer { if scoped { source.stopAccessingSecurityScopedResource() } }
-        try FileManager.default.copyItem(at: source, to: destination)
+        let byteCount = try LocalDocumentImport.copy(source, to: destination, maxBytes: 8 * 1_024 * 1_024)
         let type = UTType(filenameExtension: safeExtension)?.preferredMIMEType ?? "application/octet-stream"
-        return ChatAttachment(id: id, name: displayName, localURL: destination, type: type)
+        return ChatAttachment(id: id, name: displayName, localURL: destination, type: type, byteCount: byteCount)
     }
 
     func importImage(_ data: Data) throws -> ChatAttachment {
@@ -57,7 +57,7 @@ actor ChatArchive {
         else { throw CocoaError(.fileReadCorruptFile) }
         let destination = mediaURL.appendingPathComponent(id.uuidString).appendingPathExtension(type.ext)
         try data.write(to: destination, options: .atomic)
-        return ChatAttachment(id: id, name: "图片.\(type.ext)", localURL: destination, type: type.mime)
+        return ChatAttachment(id: id, name: "图片.\(type.ext)", localURL: destination, type: type.mime, byteCount: data.count)
     }
 
     /// Remove only archive-owned files, never an arbitrary file URL from a message.

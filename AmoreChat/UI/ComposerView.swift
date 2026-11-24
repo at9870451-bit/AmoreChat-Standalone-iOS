@@ -1,6 +1,5 @@
 import SwiftUI
 import PhotosUI
-import UniformTypeIdentifiers
 import UIKit
 
 /// The root view owns the safe area. This view only lays out the composer and its real pickers.
@@ -26,14 +25,20 @@ struct ComposerView: View {
     @State private var showingFileImporter = false
     @State private var confirmPaidSearch = false
     @State private var inputError: String?
+    @State private var modeNotice: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .body) private var inputSize: CGFloat = 16.5
+    @ScaledMetric(relativeTo: .subheadline) private var chipSize: CGFloat = 13.5
 
-    private var hasContent: Bool {
-        !controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !controller.attachments.isEmpty
-    }
+    private var hasText: Bool { !controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var hasContent: Bool { hasText || !controller.attachments.isEmpty }
+    private var modesLocked: Bool { controller.isLoading || controller.isImporting || controller.isGenerating }
+    private var showSend: Bool { hasContent && !voiceMode && !speechInputActive && !controller.isGenerating }
+    private var showVoice: Bool { !showSend || !controller.attachments.isEmpty }
 
     private var canSend: Bool {
-        controller.backendReady && !controller.isLoading && !controller.isImporting && !controller.isGenerating && hasContent
+        controller.backendReady && !controller.isLoading && !controller.isImporting && !controller.isAttachingFile
+            && !voiceMode && !speechInputActive && !controller.isGenerating && hasContent
     }
 
     var body: some View {
@@ -44,11 +49,20 @@ struct ComposerView: View {
             if let inputError {
                 errorRow(inputError, retry: false)
             }
+            if let modeNotice {
+                Label(modeNotice, systemImage: "info.circle")
+                    .font(.footnote).foregroundStyle(ChatTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 9).padding(.bottom, 8)
+                    .accessibilityIdentifier("composer.mode.notice")
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 if !controller.attachments.isEmpty {
                     attachmentPreviews
-                        .padding(.bottom, 4)
+                    if !voiceMode && !speechInputActive && !hasText && !controller.isGenerating {
+                        attachmentPrompts
+                    }
                 }
 
                 HStack(alignment: .top, spacing: 4) {
@@ -63,7 +77,7 @@ struct ComposerView: View {
                             .onSubmit {
                                 if canSend { controller.send(); messageFocused = false }
                             }
-                            .font(.system(size: 18))
+                            .font(.system(size: inputSize, weight: .regular))
                             .tint(ComposerColors.blue)
                             .foregroundStyle(ComposerColors.text)
                             .frame(minHeight: 44, alignment: .topLeading)
@@ -76,29 +90,33 @@ struct ComposerView: View {
 
                 }
 
-                HStack(spacing: 4) {
+                if voiceMode || speechInputActive {
+                    ChatTheme.line.opacity(0.8)
+                        .frame(height: 0.5)
+                        .padding(.horizontal, -12)
+                        .accessibilityHidden(true)
+                }
+
+                HStack(spacing: 0) {
                     ScrollView(.horizontal) {
-                        HStack(spacing: 8) {
-                            modeChip("深度思考", symbol: "atom", isOn: controller.thinkingEnabled) {
-                                guard !controller.isGenerating else { return }
-                                controller.errorText = nil
-                                if controller.thinkingEnabled { controller.thinkingEnabled = false }
-                                else if !controller.backendReady {
-                                    controller.errorText = "请先在设置中添加可用的 AI 模型。"
-                                } else if !controller.supportsThinking {
-                                    controller.errorText = "自定义服务商尚未配置可验证的思考模式协议。"
-                                } else { controller.thinkingEnabled = true }
+                        HStack(spacing: 7) {
+                            modeChip("深度思考", id: "thinking", symbol: "atom", isOn: controller.thinkingEnabled) {
+                                modeNotice = nil
+                                if !controller.setThinking(!controller.thinkingEnabled) {
+                                    modeNotice = controller.backendReady
+                                        ? "当前模型没有可用的思考协议，请在模型设置中检查。"
+                                        : "请先在设置中添加可用的 AI 模型。"
+                                }
                             }
-                            modeChip("智能搜索", symbol: "globe", isOn: controller.webSearchEnabled) {
-                                guard !controller.isGenerating else { return }
-                                controller.errorText = nil
-                                if controller.webSearchEnabled { controller.webSearchEnabled = false }
+                            modeChip("智能搜索", id: "search", symbol: "globe", isOn: controller.webSearchEnabled) {
+                                modeNotice = nil
+                                if controller.webSearchEnabled { controller.setWebSearch(false) }
                                 else if !controller.backendReady {
-                                    controller.errorText = "请先在设置中添加可用的 AI 模型。"
-                                } else if !controller.supportsWebSearch {
-                                    controller.errorText = "当前接口未配置联网搜索。可使用官方 OpenRouter，或按服务商文档配置兼容搜索协议。"
-                                } else {
+                                    modeNotice = "请先在设置中添加可用的 AI 模型。"
+                                } else if controller.supportsWebSearch {
                                     confirmPaidSearch = true
+                                } else {
+                                    modeNotice = "此模型不支持网页搜索。请选择 OpenRouter 或已声明网页搜索协议的兼容接口。"
                                 }
                             }
                         }
@@ -120,22 +138,24 @@ struct ComposerView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(ComposerColors.text)
-                    .disabled(controller.isGenerating)
+                    .disabled(controller.isGenerating || controller.isImporting || speechInputActive || controller.isAttachingFile)
                     .accessibilityLabel(attachmentsOpen ? "收起附件选项" : "添加附件")
                     .accessibilityIdentifier("composer.attach.toggle")
 
+                    if showVoice { voiceAction }
                     if controller.isGenerating { stopAction }
-                    primaryAction
+                    else if showSend { sendAction }
                 }
-                .frame(height: 44)
+                .frame(minHeight: 44)
             }
             .padding(.horizontal, 12)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .background(ComposerColors.card, in: RoundedRectangle(cornerRadius: 27, style: .continuous))
+            .padding(.top, 13)
+            .padding(.bottom, 7)
+            .background(ComposerColors.card, in: RoundedRectangle(cornerRadius: 29, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 27, style: .continuous)
+                RoundedRectangle(cornerRadius: 29, style: .continuous)
                     .strokeBorder(ComposerColors.cardBorder, lineWidth: 0.7)
+                    .allowsHitTesting(false)
             }
 
             if attachmentsOpen {
@@ -145,24 +165,19 @@ struct ComposerView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 12)
         .padding(.bottom, attachmentsOpen ? 16 : 0)
-        .background(ChatTheme.canvas)
         .alert("联网搜索可能产生额外费用", isPresented: $confirmPaidSearch) {
             Button("开启联网搜索") {
-                guard controller.backendReady && controller.supportsWebSearch && !controller.isGenerating else { return }
-                controller.webSearchEnabled = true
+                guard controller.setWebSearch(true) else { return }
+                modeNotice = nil
             }
             Button("取消", role: .cancel) {}
         } message: {
             Text("会把网页搜索选项和聊天请求发送到当前配置的模型接口。搜索可能额外计费，后续发送也会使用，直到关闭或更改模型。兼容接口是否实际支持搜索，以服务商为准。")
         }
-        .onChange(of: controller.supportsThinking) { _, supported in
-            if !supported { controller.thinkingEnabled = false }
-        }
-        .onChange(of: controller.supportsWebSearch) { _, supported in
-            if !supported { controller.webSearchEnabled = false }
-        }
+        .onChange(of: controller.selectedModelName) { _, _ in modeNotice = nil }
+        .onChange(of: controller.backendReady) { _, _ in modeNotice = nil }
         .onChange(of: speechInputActive) { old, active in
             if old && !active && hasContent { voiceMode = false }
         }
@@ -204,16 +219,13 @@ struct ComposerView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $showingFileImporter, allowedContentTypes: [.item]) { result in
-            switch result {
-            case .success(let url):
-                Task { @MainActor in
-                    inputError = nil
-                    // ChatArchive also obtains access while copying into its own storage.
-                    await controller.attach(url)
-                }
-            case .failure(let error):
-                inputError = "无法导入文件：\(error.localizedDescription)"
+        .sheet(isPresented: $showingFileImporter) {
+            NativeDocumentPicker { url in
+                showingFileImporter = false
+                guard let url else { return }
+                attachmentsOpen = false
+                inputError = nil
+                Task { await controller.attach(url) }
             }
         }
     }
@@ -248,101 +260,99 @@ struct ComposerView: View {
 
     private var stopAction: some View {
         Button { controller.stop() } label: {
-            Image(systemName: "stop.circle.fill")
-                .font(.system(size: 27))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            roundAction("stop.fill")
         }
         .buttonStyle(.plain)
-        .foregroundStyle(ComposerColors.blue)
         .accessibilityLabel("停止生成")
         .accessibilityIdentifier("composer.stop")
     }
 
-    @ViewBuilder
-    private var primaryAction: some View {
-        if hasContent && !speechInputActive && !controller.isGenerating {
-            Button {
-                controller.send()
-                messageFocused = false
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 29))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(canSend ? ComposerColors.blue : ComposerColors.secondary)
-            .disabled(!canSend)
-            .accessibilityLabel("发送消息")
-            .accessibilityIdentifier("composer.send")
-            .accessibilityHint(!controller.backendReady
-                ? "尚未配置模型，暂不能发送"
-                : "发送消息和附件")
-        } else {
-            Button {
-                if speechInputActive { onSpeechStop(); return }
-                voiceMode.toggle()
-                attachmentsOpen = false
-                messageFocused = !voiceMode
-                if voiceMode { onVoiceModeEntered() }
-            } label: {
-                Image(systemName: speechInputActive ? "waveform.circle.fill" : (voiceMode ? "keyboard.circle" : "waveform.circle"))
-                    .font(.system(size: 27))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(speechFinishing || controller.isGenerating || controller.isImporting)
-            .foregroundStyle(speechInputActive ? ChatTheme.accent : ComposerColors.text)
-            .accessibilityLabel(speechFinishing ? "正在整理语音" : (speechInputActive ? "结束语音输入" : (voiceMode ? "切换键盘" : "语音输入")))
-            .accessibilityIdentifier(voiceMode && !speechInputActive ? "composer.keyboard" : "composer.speech")
+    private var sendAction: some View {
+        Button {
+            controller.send()
+            messageFocused = false
+        } label: {
+            roundAction("arrow.up", active: canSend)
         }
+        .buttonStyle(.plain)
+        .disabled(!canSend)
+        .accessibilityLabel("发送消息")
+        .accessibilityIdentifier("composer.send")
+        .accessibilityHint(!controller.backendReady ? "尚未配置模型，暂不能发送" : "发送消息和附件")
+    }
+
+    private var voiceAction: some View {
+        let showsKeyboard = voiceMode && !speechInputActive
+        return Button {
+            if speechInputActive { onSpeechStop(); return }
+            voiceMode.toggle()
+            attachmentsOpen = false
+            messageFocused = !voiceMode
+            if voiceMode { onVoiceModeEntered() }
+        } label: {
+            ComposerGlyph(kind: showsKeyboard ? .keyboard : .voice,
+                          color: speechInputActive ? ChatTheme.accent : ComposerColors.text)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(speechFinishing || controller.isLoading || controller.isGenerating || controller.isImporting)
+        .accessibilityLabel(speechFinishing ? "正在整理语音" : (speechInputActive ? "结束语音输入" : (showsKeyboard ? "切换键盘" : "语音输入")))
+        .accessibilityIdentifier(showsKeyboard ? "composer.keyboard" : "composer.speech")
+    }
+
+    private func roundAction(_ symbol: String, active: Bool = true) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: symbol == "stop.fill" ? 14 : 17, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 30, height: 30)
+            .background(active ? ComposerColors.actionBlue : ComposerColors.secondary, in: Circle())
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
     }
 
     private var attachmentPreviews: some View {
         ScrollView(.horizontal) {
             HStack(spacing: 8) {
                 ForEach(controller.attachments) { attachment in
-                    HStack(spacing: 5) {
-                        if attachment.type.hasPrefix("image/"),
-                           let image = UIImage(contentsOfFile: attachment.localURL.path) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(width: 32, height: 32)
-                                .clipShape(RoundedRectangle(cornerRadius: 7))
-                                .accessibilityHidden(true)
-                        } else {
-                            Image(systemName: "doc")
-                                .frame(width: 32, height: 32)
-                                .accessibilityHidden(true)
-                        }
-                        Text(attachment.name)
-                            .lineLimit(1)
-                            .frame(maxWidth: 120, alignment: .leading)
-                        Button {
-                            controller.removeAttachment(attachment.id)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(controller.isGenerating)
-                        .accessibilityLabel("移除附件 \(attachment.name)")
+                    AttachmentCard(attachment: attachment, compact: true) {
+                        controller.removeAttachment(attachment.id)
                     }
-                    .font(.caption)
-                    .foregroundStyle(ComposerColors.text)
-                    .padding(.leading, 6)
-                    .padding(.trailing, 2)
-                    .background(ComposerColors.tile, in: RoundedRectangle(cornerRadius: 12))
-                    .accessibilityElement(children: .contain)
+                    .disabled(controller.isGenerating)
+                    .accessibilityIdentifier("composer.attachment.card")
                 }
             }
         }
         .scrollIndicators(.hidden)
         .accessibilityLabel("待发送附件")
+    }
+
+    private var attachmentPrompts: some View {
+        let isImage = controller.attachments.first?.type.hasPrefix("image/") == true
+        let prompts = isImage ? ["这是什么", "分析一下", "怎么办", "解释一下"]
+                              : ["分析一下", "答案是什么", "总结", "解释一下"]
+        return ScrollView(.horizontal) {
+            HStack(spacing: 7) {
+                ForEach(prompts, id: \.self) { prompt in
+                    Button { if !hasText { controller.draft = prompt } } label: {
+                        HStack(spacing: 6) {
+                            Text(prompt)
+                            Image(systemName: "arrow.right").accessibilityHidden(true)
+                        }
+                        .font(.system(size: chipSize, weight: .regular)).foregroundStyle(ComposerColors.text)
+                        .padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(ComposerColors.card, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(ChatTheme.line, lineWidth: 0.5).allowsHitTesting(false) }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("填入输入框，不会自动发送")
+                    .accessibilityIdentifier("composer.attachment.prompt")
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .padding(.vertical, 5)
     }
 
     private var attachmentTiles: some View {
@@ -398,31 +408,34 @@ struct ComposerView: View {
         .contentShape(RoundedRectangle(cornerRadius: 19))
     }
 
-    private func modeChip(_ title: String, symbol: String, isOn: Bool,
+    private func modeChip(_ title: String, id: String, symbol: String, isOn: Bool,
                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 5) {
                 Image(systemName: symbol)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 16, weight: isOn ? .medium : .regular))
+                    .symbolEffect(.bounce, value: isOn && !reduceMotion)
+                    .accessibilityHidden(true)
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: chipSize, weight: .regular))
                     .fixedSize()
             }
-            .foregroundStyle(ComposerColors.blue)
-            .padding(.horizontal, 11)
-            .frame(height: 32)
-            .background(isOn ? ComposerColors.selectedChip : ComposerColors.chip,
-                        in: Capsule())
-            .overlay { Capsule().strokeBorder(ComposerColors.chipBorder, lineWidth: 1) }
-            .contentShape(Capsule())
+            .foregroundStyle(isOn ? ComposerColors.blue : ComposerColors.text)
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .frame(minHeight: 32)
+            .background(isOn ? ComposerColors.selectedChip : Color.clear, in: Capsule())
+            .overlay { Capsule().strokeBorder(isOn ? ComposerColors.chipBorder : ComposerColors.cardBorder, lineWidth: 0.8).allowsHitTesting(false) }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isOn)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(ModePressStyle())
+        .disabled(modesLocked)
         .accessibilityLabel(title)
+        .accessibilityIdentifier("composer.mode.\(id)")
         .accessibilityAddTraits(isOn ? [.isSelected] : [])
         .accessibilityValue(isOn ? "已开启" : "已关闭")
-        .accessibilityHint(controller.backendReady
-            ? "双击\(isOn ? "关闭" : "开启")\(title)"
-            : "模式待接入后端；双击\(isOn ? "关闭" : "开启")\(title)")
+        .accessibilityHint("双击\(isOn ? "关闭" : "开启")\(title)")
     }
 
     private func errorRow(_ message: String, retry: Bool) -> some View {
@@ -435,9 +448,11 @@ struct ComposerView: View {
             if retry {
                 Button("重试") { controller.retry() }
                     .fontWeight(.semibold)
-            } else if inputError == message {
-                Button("关闭") { inputError = nil }
-                    .fontWeight(.semibold)
+            } else {
+                Button("关闭") {
+                    if inputError == message { inputError = nil }
+                    else { controller.errorText = nil }
+                }.fontWeight(.medium)
             }
         }
         .font(.footnote)
@@ -447,8 +462,20 @@ struct ComposerView: View {
     }
 }
 
+private struct ModePressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .opacity(configuration.isPressed ? 0.70 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
 /// Dynamic colors keep the dark reference while remaining readable in light mode.
 private enum ComposerColors {
+    static let actionBlue = Color(red: 0.23, green: 0.39, blue: 0.84)
     static let text = Color(uiColor: .label)
     static let secondary = Color(uiColor: .secondaryLabel)
     static let card = Color(uiColor: UIColor { traits in

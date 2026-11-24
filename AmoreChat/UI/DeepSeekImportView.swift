@@ -1,11 +1,6 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
-/// Drop-in picker/preview. Parent supplies a transactional persistence callback:
-///    let snapshot = result.merging(into: controller.sessions)
-///    try await archive.save(snapshot.sessions) // cancel pending controller save first
-///    controller.sessions = snapshot.sessions.sorted { $0.updatedAt > $1.updatedAt }
-/// Never mutate controller before that save succeeds. SettingsView integration is parent-owned.
+/// File selection and validation do not mutate the chat store. Only confirmation commits.
 struct DeepSeekImportView: View {
     let onCommit: @MainActor (DeepSeekImportResult) async throws -> (added: Int, duplicates: Int)
     @State private var showingPicker = false
@@ -31,28 +26,42 @@ struct DeepSeekImportView: View {
                             self.parsed = nil
                         } catch { notice = "保存失败，未提交导入：\(error.localizedDescription)" }
                     }
-                }.disabled(isBusy)
-            }
-            Button("选择 DeepSeek ZIP") { showingPicker = true }.disabled(isBusy)
-            if isBusy { ProgressView("正在处理…") }
-            if let notice { Text(notice).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled) }
-        }
-        .padding()
-        .fileImporter(isPresented: $showingPicker, allowedContentTypes: [.zip], allowsMultipleSelection: false) { selection in
-            switch selection {
-            case .failure(let error): notice = error.localizedDescription
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                parsed = nil; notice = nil; isBusy = true
-                Task { @MainActor in
-                    defer { isBusy = false }
-                    do {
-                        parsed = try await Task.detached(priority: .userInitiated) {
-                            try DeepSeekImport.parse(url)
-                        }.value
-                    } catch { notice = error.localizedDescription }
                 }
+                .disabled(isBusy)
+                .accessibilityIdentifier("history.import.confirm")
             }
+            Button("选择 DeepSeek ZIP") { showingPicker = true }
+                .buttonStyle(.borderedProminent)
+                .disabled(isBusy)
+                .accessibilityIdentifier("history.import.pick")
+            if isBusy { ProgressView("正在处理…") }
+            if let notice {
+                Text(notice).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+                    .accessibilityIdentifier("history.import.result")
+            }
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(ChatTheme.settingsBackground.ignoresSafeArea())
+        .navigationTitle("导入聊天记录")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showingPicker) {
+            NativeDocumentPicker { url in
+                showingPicker = false
+                if let url { prepare(url) }
+            }
+        }
+    }
+
+    private func prepare(_ url: URL) {
+        parsed = nil; notice = nil; isBusy = true
+        Task { @MainActor in
+            defer { isBusy = false }
+            do {
+                parsed = try await Task.detached(priority: .userInitiated) {
+                    try LocalDocumentImport.loadDeepSeek(url)
+                }.value
+            } catch { notice = error.localizedDescription }
         }
     }
 }

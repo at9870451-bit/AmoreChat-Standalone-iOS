@@ -17,6 +17,7 @@ struct OpenAICompatibleBackend: ChatBackend {
 
     // Configuration is validated at send time, so the controller can display the specific error.
     var isConfigured: Bool { true }
+    var supportsThinking: Bool { profile.allowsThinking }
     var supportsWebSearch: Bool { profile.allowsWebSearch }
 
     func stream(messages: [ChatMessage], options: ChatOptions) async throws -> AsyncThrowingStream<BackendChunk, Error> {
@@ -99,7 +100,7 @@ struct OpenAICompatibleBackend: ChatBackend {
         case .reasoningEffort:
             if options.deepThinking { payload["reasoning_effort"] = "high" }
         case .openRouterReasoning:
-            if options.deepThinking { payload["reasoning"] = ["enabled": true] }
+            payload["reasoning"] = ["enabled": options.deepThinking]
         case nil: break
         }
         if options.webSearch && profile.allowsWebSearch {
@@ -129,7 +130,10 @@ struct OpenAICompatibleBackend: ChatBackend {
             let mime = attachment.type.lowercased()
             let imageTypes: Set<String> = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/heic", "image/heif"]
             let textTypes: Set<String> = ["text/plain", "text/markdown", "text/csv", "text/xml", "application/json", "application/xml", "text/x-python", "text/x-yaml", "application/pdf"]
-            guard imageTypes.contains(mime) || textTypes.contains(mime) else { throw AdapterError.unsupportedAttachment }
+            let sourceSuffixes: Set<String> = ["c", "h", "cc", "cpp", "cxx", "hpp", "swift", "java", "js", "ts", "rs", "go", "py", "yaml", "yml"]
+            let suffix = attachment.localURL.pathExtension.lowercased()
+            guard imageTypes.contains(mime) || textTypes.contains(mime) || sourceSuffixes.contains(suffix)
+            else { throw AdapterError.unsupportedAttachment }
             // Check the file size before allocating memory, then check again against races.
             guard let attributes = try? FileManager.default.attributesOfItem(atPath: attachment.localURL.path),
                   let size = attributes[.size] as? NSNumber, size.int64Value >= 0,

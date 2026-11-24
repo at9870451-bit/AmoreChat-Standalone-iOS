@@ -38,7 +38,9 @@ final class ChatSmokeUITests: XCTestCase {
         search.tap()
         XCTAssertTrue(app.textFields["history.search.query"].waitForExistence(timeout: 8))
         app.buttons["history.search.back"].tap()
-        app.buttons["Close sidebar"].tap()
+        let close = app.buttons["root.sidebar.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 8))
+        close.tap()
         XCTAssertTrue(app.buttons["root.chat.new"].waitForExistence(timeout: 5))
         app.buttons["root.chat.new"].tap()
         XCTAssertTrue(app.buttons["composer.speech"].waitForExistence(timeout: 5))

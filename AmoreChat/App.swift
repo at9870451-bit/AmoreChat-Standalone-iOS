@@ -32,6 +32,8 @@ struct RootView: View {
     @AppStorage("standalone.speech.voiceID") private var readerVoiceID = ""
     @Environment(\.dynamicTypeSize) private var systemTextSize
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .headline) private var headerTitleSize: CGFloat = 16
 
     private var appearanceMode: AppearanceMode { AppearanceMode(storedValue: appearance) }
     private var displayTextSize: DynamicTypeSize {
@@ -44,14 +46,15 @@ struct RootView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let sidebarWidth = min(338, geometry.size.width * 0.85)
+            let sidebarWidth = min(340, geometry.size.width * 0.783)
+            let previewScale = sidebarOpen ? 0.966 : 1.0
+            let previewTop = sidebarOpen ? min(36, geometry.safeAreaInsets.top * 0.60) : 0
             ZStack(alignment: .leading) {
                 ChatTheme.canvas.ignoresSafeArea()
                 if sidebarOpen {
                     SidebarView(controller: controller,
-                                onClose: { withAnimation(.easeInOut(duration: 0.27)) { sidebarOpen = false } },
-                                onNewChat: { controller.newChat() },
-                                onSettings: { sidebarOpen = false; settingsOpen = true },
+                                onClose: { setSidebar(false) },
+                                onSettings: { setSidebar(false); settingsOpen = true },
                                 onSearch: {
                                     keyboardDismissSignal &+= 1
                                     cancelSpeech()
@@ -89,27 +92,42 @@ struct RootView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(ChatTheme.canvas)
+                .padding(.top, previewTop)
+                .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
                 .clipShape(RoundedRectangle(cornerRadius: sidebarOpen ? 28 : 0))
-                .offset(x: sidebarOpen ? sidebarWidth : 0)
+                .overlay {
+                    if sidebarOpen {
+                        RoundedRectangle(cornerRadius: 28)
+                            .strokeBorder(ChatTheme.line.opacity(0.42), lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .allowsHitTesting(!sidebarOpen)
+                .accessibilityHidden(sidebarOpen)
+                .scaleEffect(previewScale, anchor: .leading)
+                .offset(x: sidebarOpen ? sidebarWidth : 0, y: -previewTop)
+                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .zIndex(1)
                 if sidebarOpen {
-                    Color.black.opacity(0.10)
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .contentShape(Rectangle())
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.27)) { sidebarOpen = false } }
-                        .offset(x: sidebarWidth)
-                        .zIndex(2)
-                        .accessibilityLabel("关闭侧边栏")
+                    Button { setSidebar(false) } label: {
+                        Color.clear
+                            .frame(width: geometry.size.width - sidebarWidth, height: geometry.size.height)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("关闭侧边栏")
+                    .accessibilityIdentifier("root.sidebar.close")
+                    .offset(x: sidebarWidth)
+                    .zIndex(2)
                 }
             }
             .simultaneousGesture(DragGesture(minimumDistance: 28)
                 .onEnded { value in
                     guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
-                    if value.translation.width > 80 && value.startLocation.x < 36 {
-                        withAnimation(.easeOut(duration: 0.25)) { sidebarOpen = true }
-                    } else if value.translation.width < -80 && sidebarOpen {
-                        withAnimation(.easeOut(duration: 0.25)) { sidebarOpen = false }
+                    if value.translation.width > 80 && value.startLocation.x < 32 {
+                        setSidebar(true)
+                    } else if value.translation.width < -72 && sidebarOpen {
+                        setSidebar(false)
                     }
                 })
         }
@@ -212,34 +230,36 @@ struct RootView: View {
         speech.cancel()
     }
 
+    private func setSidebar(_ open: Bool) {
+        guard open != sidebarOpen else { return }
+        if open {
+            keyboardDismissSignal &+= 1
+            cancelSpeech()
+        }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.27)) { sidebarOpen = open }
+    }
+
     private var header: some View {
         HStack(spacing: 12) {
-            Button {
-                keyboardDismissSignal &+= 1
-                withAnimation(.easeInOut(duration: 0.27)) { sidebarOpen.toggle() }
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 20, weight: .medium))
-                    .frame(width: 44, height: 44)
-                    .background(ChatTheme.surface, in: Circle())
-                    .contentShape(Circle())
+            Button { setSidebar(!sidebarOpen) } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Capsule().frame(width: 17, height: 1.65)
+                    Capsule().frame(width: 9, height: 1.65)
+                }
+                .frame(width: 44, height: 44)
+                .background(ChatTheme.surface, in: Circle())
+                .overlay { Circle().strokeBorder(ChatTheme.line.opacity(0.68), lineWidth: 0.5) }
+                .contentShape(Circle())
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("打开历史对话")
             .accessibilityIdentifier("root.sidebar.open")
             if !controller.messages.isEmpty {
                 Button { modelSettingsOpen = true } label: {
-                    Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
-                        .font(.headline).lineLimit(1)
+                    Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "新对话")
+                        .font(.system(size: headerTitleSize, weight: .regular)).lineLimit(1)
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint("点按选择模型")
-                .accessibilityIdentifier("root.model.select")
-            } else if let name = controller.selectedModelName {
-                Button { modelSettingsOpen = true } label: {
-                    Text(name).font(.subheadline).lineLimit(1)
-                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("点按选择模型")
@@ -268,11 +288,13 @@ struct RootView: View {
                 .accessibilityLabel("新建对话")
                 .accessibilityIdentifier("root.chat.new")
             }
+            .buttonStyle(.plain)
             .background(ChatTheme.surface, in: Capsule())
+            .overlay { Capsule().strokeBorder(ChatTheme.line.opacity(0.68), lineWidth: 0.5).allowsHitTesting(false) }
         }
         .foregroundStyle(ChatTheme.text)
         .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 7)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
     }
 }

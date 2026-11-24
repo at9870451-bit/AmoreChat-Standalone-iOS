@@ -56,9 +56,9 @@ struct TranscriptView: View {
                     Color.clear.frame(height: 1).id(bottomID)
                 }
                 .frame(maxWidth: 780).frame(maxWidth: .infinity)
-                .padding(.horizontal, 16).padding(.vertical, 22)
+                .padding(.leading, 23).padding(.trailing, 20)
+                .padding(.top, controller.messages.isEmpty ? 22 : 32).padding(.bottom, 22)
             }
-            .background(ChatTheme.canvas)
             .contentShape(Rectangle())
             .simultaneousGesture(TapGesture().onEnded(onBackgroundTap))
             .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -108,6 +108,8 @@ private struct MessageRow: View {
     let canRegenerate: Bool
     @State private var showDeleteConfirm = false
     @State private var reasoningOpen = false
+    @ScaledMetric(relativeTo: .body) private var messageSize: CGFloat = 16.5
+    @ScaledMetric(relativeTo: .subheadline) private var reasoningLabelSize: CGFloat = 15.5
     @AppStorage("standalone.reasoning.autoFold") private var autoFoldReasoning = true
     @AppStorage("standalone.chat.feedback.v1") private var feedbackBlob = "{}"
     private var isUser: Bool { message.role == .user }
@@ -136,7 +138,7 @@ private struct MessageRow: View {
                                     .font(.caption.weight(.semibold))
                             }
                             .foregroundStyle(ChatTheme.muted)
-                            .font(.subheadline)
+                            .font(.system(size: reasoningLabelSize, weight: .regular))
                             .frame(minHeight: 37, alignment: .leading)
                             .contentShape(Rectangle())
                         }
@@ -145,8 +147,7 @@ private struct MessageRow: View {
                         .accessibilityValue(reasoningOpen ? "已展开" : "已折叠")
                         if reasoningOpen {
                             HStack(alignment: .top, spacing: 11) {
-                                RichTextView(source: reasoning)
-                                    .font(.subheadline)
+                                RichTextView(source: reasoning, isReasoning: true)
                                     .foregroundStyle(ChatTheme.muted)
                                     .padding(.leading, 14)
                                     .overlay(alignment: .leading) {
@@ -170,6 +171,7 @@ private struct MessageRow: View {
                     Group {
                         if isUser {
                             Text(message.content)
+                                .font(.system(size: messageSize, weight: .regular))
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 15)
@@ -196,20 +198,10 @@ private struct MessageRow: View {
                     ProgressView().controlSize(.small).accessibilityLabel("正在生成回复")
                 }
                 ForEach(message.attachments) { item in
-                    if item.type.hasPrefix("image/"), let image = UIImage(contentsOfFile: item.localURL.path) {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 260, maxHeight: 230)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .accessibilityLabel("图片附件：\(item.name)")
-                    }
-                    ShareLink(item: item.localURL) {
-                        Label(item.name, systemImage: item.type.hasPrefix("image/") ? "photo" : "doc")
-                            .font(.footnote).lineLimit(1).padding(8)
-                            .background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 8))
-                    }
-                    .accessibilityLabel("分享附件：\(item.name)")
+                    ShareLink(item: item.localURL) { AttachmentCard(attachment: item) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("分享附件：\(item.name)")
+                        .accessibilityIdentifier("message.attachment")
                 }
                 if !isUser {
                     HStack(spacing: 19) {
