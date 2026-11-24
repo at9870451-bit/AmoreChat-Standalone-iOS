@@ -14,7 +14,8 @@ final class ReferenceScreensUITests: XCTestCase {
                                 "-standalone.appearance", "dark", "-standalone.appLanguage", "zh-Hans"]
         app.launch()
         XCTAssertTrue(app.staticTexts["home.welcome"].waitForExistence(timeout: 20))
-        XCTAssertFalse(app.buttons["composer.send"].isEnabled)
+        XCTAssertTrue(app.buttons["composer.speech"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["composer.send"].exists)
         capture(app, name: "01-home")
 
         let attach = app.buttons["composer.attach.toggle"]

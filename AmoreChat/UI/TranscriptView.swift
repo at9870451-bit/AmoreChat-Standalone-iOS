@@ -114,32 +114,36 @@ private struct MessageRow: View {
     private var vote: Int { (decodeFeedback()[message.id.uuidString] ?? 0) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            if isUser { Spacer(minLength: 32) }
-            if !isUser {
-                Image(systemName: "sparkle").font(.subheadline.weight(.semibold))
-                    .foregroundStyle(ChatTheme.accent).frame(width: 29, height: 29)
-                    .background(ChatTheme.accentWash, in: RoundedRectangle(cornerRadius: 9))
-                    .accessibilityHidden(true)
-            }
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 9) {
-                Text(isUser ? "你" : "AmoreChat")
-                    .font(.caption.weight(.semibold)).foregroundStyle(ChatTheme.muted)
+        HStack(alignment: .top, spacing: 0) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 12) {
                 if let reasoning = message.reasoning, !reasoning.isEmpty {
                     DisclosureGroup(isExpanded: $reasoningOpen) {
                         RichTextView(source: reasoning).font(.subheadline)
                             .padding(.top, 8).foregroundStyle(ChatTheme.muted)
-                    } label: { Label("思考过程", systemImage: "brain.head.profile") }
-                    .font(.caption).tint(ChatTheme.accent)
-                    .padding(10).background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                    } label: {
+                        Text(message.status == .streaming ? "思考中" : "已思考")
+                            .foregroundStyle(ChatTheme.muted)
+                    }
+                    .font(.subheadline)
+                    .tint(ChatTheme.muted)
+                    .padding(.bottom, 4)
                 }
                 if !message.content.isEmpty {
-                    RichTextView(source: message.content)
-                        .padding(isUser ? 13 : 0)
-                        .background(isUser ? ChatTheme.accentWash : Color.clear,
-                                    in: RoundedRectangle(cornerRadius: 16))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contextMenu {
+                    Group {
+                        if isUser {
+                            Text(message.content)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(13)
+                                .background(ChatTheme.raised, in: RoundedRectangle(cornerRadius: 16))
+                                .frame(maxWidth: 300, alignment: .trailing)
+                        } else {
+                            RichTextView(source: message.content)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .contextMenu {
                             Button("复制文本", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.content }
                             ShareLink(item: message.content) { Label("分享文本", systemImage: "square.and.arrow.up") }
                             if canRegenerate { Button("重新生成", systemImage: "arrow.clockwise", action: onRegenerate) }
@@ -166,33 +170,37 @@ private struct MessageRow: View {
                     }
                     .accessibilityLabel("分享附件：\(item.name)")
                 }
-                HStack(spacing: 16) {
-                    Text(message.createdAt, style: .time)
-                    if !message.content.isEmpty {
-                        Button { UIPasteboard.general.string = message.content } label: {
-                            Image(systemName: "doc.on.doc")
-                        }.accessibilityLabel("复制消息")
-                        ShareLink(item: message.content) { Image(systemName: "square.and.arrow.up") }
-                            .accessibilityLabel("分享消息")
-                    }
-                    if !isUser && message.status == .complete && !message.content.isEmpty {
-                        Button { onReadAloud(message.content) } label: {
-                            Image(systemName: "speaker.wave.2")
+                if !isUser {
+                    HStack(spacing: 19) {
+                        if !message.content.isEmpty {
+                            Button { UIPasteboard.general.string = message.content } label: {
+                                Image(systemName: "doc.on.doc")
+                            }.accessibilityLabel("复制消息")
                         }
-                        .accessibilityLabel("朗读回复")
-                        if canRegenerate {
+                        if message.status == .complete && !message.content.isEmpty {
+                            feedbackButton(1, "赞同", "hand.thumbsup")
+                            feedbackButton(-1, "不赞同", "hand.thumbsdown")
+                            Button { onReadAloud(message.content) } label: {
+                                Image(systemName: "speaker.wave.2")
+                            }.accessibilityLabel("朗读回复")
+                            ShareLink(item: message.content) { Image(systemName: "arrowshape.turn.up.right") }
+                                .accessibilityLabel("分享消息")
+                        }
+                        if message.status == .failed {
+                            Label("未完成", systemImage: "exclamationmark.circle")
+                                .foregroundStyle(ChatTheme.danger)
+                        }
+                        Spacer(minLength: 0)
+                        if canRegenerate && message.status == .complete {
                             Button(action: onRegenerate) { Image(systemName: "arrow.clockwise") }
                                 .accessibilityLabel("重新生成")
                         }
-                        feedbackButton(1, "赞同", "hand.thumbsup")
-                        feedbackButton(-1, "不赞同", "hand.thumbsdown")
                     }
-                    if message.status == .failed {
-                        Label("未完成", systemImage: "exclamationmark.circle").foregroundStyle(ChatTheme.danger)
-                    }
+                    .font(.system(size: 17))
+                    .foregroundStyle(ChatTheme.muted)
+                    .frame(minHeight: 44)
+                    .buttonStyle(.plain)
                 }
-                .font(.caption).foregroundStyle(ChatTheme.muted)
-                .buttonStyle(.plain)
             }
             .frame(maxWidth: 590, alignment: isUser ? .trailing : .leading)
             if !isUser { Spacer(minLength: 12) }

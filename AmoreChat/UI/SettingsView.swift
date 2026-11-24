@@ -12,12 +12,11 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var page: SettingsPage?
     @State private var showSignOutNotice = false
-    @AppStorage("standalone.appearance") private var appearance = "system"
+    @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
     @AppStorage("standalone.profile.nickname") private var nickname = "访客"
-    private let background = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(white: 0.12, alpha: 1) : UIColor(white: 0.96, alpha: 1) })
+    private var appearanceMode: AppearanceMode { AppearanceMode(storedValue: appearance) }
 
     var body: some View {
         ScrollView {
@@ -63,7 +62,10 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
         }
-        .background(background.ignoresSafeArea())
+        .background(ChatTheme.settingsBackground.ignoresSafeArea())
+        // A presented sheet is a separate presentation: give it the same explicit
+        // preference instead of relying on the presenting root's window style.
+        .preferredColorScheme(appearanceMode.colorScheme)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $page) { page in
             NavigationStack {
@@ -73,9 +75,11 @@ struct SettingsView: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完成") { self.page = nil }
+                                .accessibilityIdentifier(page == .appearance ? "settings.appearance.done" : "settings.page.done")
                         }
                     }
             }
+            .preferredColorScheme(appearanceMode.colorScheme)
         }
         .alert("尚未登录", isPresented: $showSignOutNotice) {
             Button("好", role: .cancel) {}
@@ -143,9 +147,7 @@ struct SettingsView: View {
         switch language { case "zh-Hans": return "简体中文"; case "zh-Hant": return "繁體中文"
         case "en": return "English"; default: return "系统" }
     }
-    private var appearanceName: String {
-        switch appearance { case "light": return "浅色"; case "dark": return "深色"; default: return "系统" }
-    }
+    private var appearanceName: String { appearanceMode.displayName }
     private func title(for page: SettingsPage) -> String {
         switch page { case .account: "账户管理"; case .models: "模型与服务商"; case .data: "数据管理"; case .language: "语言"
         case .appearance: "外观"; case .font: "字体大小"; case .personalization: "个性化"
@@ -169,9 +171,27 @@ struct SettingsView: View {
                 Text("切换后立即应用；翻译尚在完善中。").font(.footnote).foregroundStyle(.secondary)
             }
         case .appearance:
-            List { Picker("外观", selection: $appearance) {
-                Text("跟随系统").tag("system"); Text("浅色").tag("light"); Text("深色").tag("dark")
-            }.pickerStyle(.inline) }
+            List {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Button {
+                        appearance = mode.rawValue
+                    } label: {
+                        HStack {
+                            Text(mode == .system ? "跟随系统" : mode.displayName)
+                            Spacer()
+                            if appearanceMode == mode {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(ChatTheme.accent)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.appearance.\(mode.rawValue)")
+                    .accessibilityAddTraits(appearanceMode == mode ? [.isSelected] : [])
+                }
+            }
         case .font:
             Form {
                 Slider(value: $fontScale, in: 0.85...1.5, step: 0.05)

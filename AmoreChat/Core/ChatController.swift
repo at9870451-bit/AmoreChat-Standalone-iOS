@@ -40,6 +40,7 @@ import Observation
     var webSearchEnabled = false
     var isGenerating = false
     var isLoading = true
+    private(set) var isImporting = false
     var errorText: String?
     var backendReady: Bool { backend.isConfigured }
     var selectedModelName: String? { injectedBackend ? nil : catalog.active?.label }
@@ -119,7 +120,7 @@ import Observation
     }
 
     func newChat() {
-        guard !isGenerating else { errorText = "请先停止生成，再切换会话。"; return }
+        guard !isGenerating && !isImporting else { errorText = "请先停止生成或等待导入完成。"; return }
         let session = ChatSession()
         sessions.insert(session, at: 0)
         currentID = session.id
@@ -130,7 +131,7 @@ import Observation
     }
 
     func open(_ id: UUID) {
-        guard !isGenerating else { errorText = "请先停止生成，再切换会话。"; return }
+        guard !isGenerating && !isImporting else { errorText = "请先停止生成或等待导入完成。"; return }
         guard sessions.contains(where: { $0.id == id }) else { return }
         currentID = id
         draft = sessions.first(where: { $0.id == id })?.draft ?? ""
@@ -140,18 +141,18 @@ import Observation
 
     func rename(_ id: UUID, _ name: String) {
         let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard !isImporting, !clean.isEmpty, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[i].title = String(clean.prefix(80)); sessions[i].updatedAt = .now
         sessions.sort(by: order); persist()
     }
 
     func pin(_ id: UUID) {
-        guard let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard !isImporting, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
         sessions[i].isPinned.toggle(); sessions.sort(by: order); persist()
     }
 
     func delete(_ id: UUID) {
-        guard !isGenerating, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
+        guard !isImporting, !isGenerating, let i = sessions.firstIndex(where: { $0.id == id }) else { return }
         let removed = sessions.remove(at: i)
         if currentID == id {
             currentID = sessions.first?.id
@@ -175,8 +176,32 @@ import Observation
         return url
     }
 
+    func importDeepSeek(_ result: DeepSeekImportResult) async throws -> (added: Int, duplicates: Int) {
+        guard !isGenerating && !isLoading && !isImporting else {
+            throw DeepSeekImportError.invalidData("请先停止生成或等待本地数据操作完成")
+        }
+        isImporting = true
+        defer { isImporting = false }
+        saveTask?.cancel()
+        if let pending = saveTask { await pending.value }
+        let merged = result.merging(into: sessions)
+        guard merged.sessions.count <= 10_000 else {
+            throw DeepSeekImportError.unsafeArchive("合并后的会话过多")
+        }
+        // Persist the full new snapshot atomically before updating the UI.
+        // A ZIP validation error or failed save leaves existing chats untouched.
+        try await archive.save(merged.sessions)
+        sessions = merged.sessions.sorted(by: order)
+        if currentID == nil, let first = sessions.first {
+            currentID = first.id
+            draft = first.draft
+            attachments = first.draftAttachments
+        }
+        return (merged.added, merged.duplicates)
+    }
+
     func deleteAllSessions() {
-        guard !isGenerating else { errorText = "请先停止生成，再清除会话。"; return }
+        guard !isImporting && !isGenerating else { errorText = "请先停止生成或等待导入完成。"; return }
         let previous = sessions
         currentID = nil
         sessions = []
@@ -208,7 +233,7 @@ import Observation
     }
 
     func send() {
-        guard !isLoading, !isGenerating else { return }
+        guard !isImporting, !isLoading, !isGenerating else { return }
         guard backendReady else { errorText = BackendUnavailable().localizedDescription; return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
@@ -223,7 +248,7 @@ import Observation
     }
 
     func retry() {
-        guard !isGenerating, backendReady, let id = currentID,
+        guard !isImporting, !isGenerating, backendReady, let id = currentID,
               let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         var history = sessions[index].messages
         guard history.last?.role == .assistant, history.last?.status == .failed else { return }
@@ -234,7 +259,7 @@ import Observation
     }
 
     func regenerate() {
-        guard !isGenerating, backendReady, let id = currentID,
+        guard !isImporting, !isGenerating, backendReady, let id = currentID,
               let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         var history = sessions[index].messages
         guard history.last?.role == .assistant else { return }
@@ -248,7 +273,7 @@ import Observation
 
     /// Delete a suffix, not one arbitrary message from model-facing history.
     func deleteFromMessage(_ messageID: UUID) {
-        guard !isGenerating, let id = currentID,
+        guard !isImporting, !isGenerating, let id = currentID,
               let index = sessions.firstIndex(where: { $0.id == id }),
               let offset = sessions[index].messages.firstIndex(where: { $0.id == messageID })
         else { return }

@@ -1,10 +1,49 @@
 import SwiftUI
 import UIKit
 
-/// System-adaptive colors shared by the standalone chat surfaces.
+/// The values match the existing `standalone.appearance` UserDefaults setting.
+/// Unknown/old values behave like "system" without forcing an interface style.
+enum AppearanceMode: String, CaseIterable, Identifiable {
+    static let storageKey = "standalone.appearance"
+
+    case system, light, dark
+
+    var id: String { rawValue }
+
+    init(storedValue: String) {
+        self = Self(rawValue: storedValue) ?? .system
+    }
+
+    var displayName: String {
+        switch self {
+        case .system: "系统"
+        case .light: "浅色"
+        case .dark: "深色"
+        }
+    }
+
+    /// A nil preference is important: it lets the OS change styles while the app is open.
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// UIColor's dynamic providers resolve against the *effective* traits of each
+/// presentation. Do not resolve these colors once using the device's system style:
+/// SwiftUI can explicitly override the style of the root view or a sheet.
 enum ChatTheme {
-    static let canvas = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(white: 0.0588, alpha: 1) : .white })
+    static let canvasUIColor = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.0588, alpha: 1) : .white }
+    static let canvas = Color(uiColor: canvasUIColor)
+
+    static let settingsBackgroundUIColor = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.12, alpha: 1) : UIColor(white: 0.96, alpha: 1) }
+    static let settingsBackground = Color(uiColor: settingsBackgroundUIColor)
+
     static let surface = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark
         ? UIColor(white: 0.1529, alpha: 1) : UIColor(white: 0.9686, alpha: 1) })
     static let raised = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark

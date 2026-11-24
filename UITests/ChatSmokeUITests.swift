@@ -21,6 +21,12 @@ final class ChatSmokeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.buttons["root.sidebar.open"].waitForExistence(timeout: 20))
+        app.buttons["root.chat.new"].tap()
+        XCTAssertTrue(app.buttons["composer.speech"].waitForExistence(timeout: 12))
+        let field = app.descendants(matching: .any)
+            .matching(identifier: "composer.message").firstMatch
+        field.tap()
+        field.typeText("测试草稿")
         let send = app.buttons["composer.send"]
         XCTAssertTrue(send.waitForExistence(timeout: 12))
         XCTAssertFalse(send.isEnabled, "Unconfigured backend must never fake a send")
@@ -29,6 +35,7 @@ final class ChatSmokeUITests: XCTestCase {
         app.buttons["Close sidebar"].tap()
         XCTAssertTrue(app.buttons["root.chat.new"].waitForExistence(timeout: 5))
         app.buttons["root.chat.new"].tap()
-        XCTAssertFalse(send.isEnabled)
+        XCTAssertTrue(app.buttons["composer.speech"].waitForExistence(timeout: 5))
+        XCTAssertFalse(send.exists)
     }
 }

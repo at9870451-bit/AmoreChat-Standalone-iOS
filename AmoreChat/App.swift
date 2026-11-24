@@ -21,7 +21,7 @@ struct RootView: View {
     @State private var settingsOpen = false
     @State private var modelSettingsOpen = false
     @State private var keyboardDismissSignal = 0
-    @AppStorage("standalone.appearance") private var appearance = "system"
+    @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
     @AppStorage("standalone.reader.muted") private var readerMuted = true
@@ -29,7 +29,7 @@ struct RootView: View {
     @Environment(\.dynamicTypeSize) private var systemTextSize
 
     private var displayScheme: ColorScheme? {
-        appearance == "light" ? .light : appearance == "dark" ? .dark : nil
+        AppearanceMode(storedValue: appearance).colorScheme
     }
     private var displayTextSize: DynamicTypeSize {
         if fontScale < 0.95 { return .small }
@@ -66,36 +66,13 @@ struct RootView: View {
                         }, onBackgroundTap: { keyboardDismissSignal &+= 1 })
                     }
                     ComposerView(controller: controller, onSpeech: {
-                        Task {
-                            if speech.isRecording {
-                                speech.stop()
-                                if !speech.transcript.isEmpty {
-                                    if !controller.draft.isEmpty { controller.draft += " " }
-                                    controller.draft += speech.transcript
-                                }
-                                speech.transcript = ""
-                            } else { await speech.toggle() }
-                        }
-                    }, dismissKeyboardSignal: keyboardDismissSignal)
-                    if speech.isRecording || !speech.transcript.isEmpty {
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform")
-                            Text(speech.transcript.isEmpty ? "正在聆听，点麦克风完成" : speech.transcript)
-                                .lineLimit(2)
-                            Spacer()
-                            Button(speech.isRecording ? "结束录音" : "加入草稿") {
-                                speech.stop()
-                                if !speech.transcript.isEmpty {
-                                    if !controller.draft.isEmpty { controller.draft += " " }
-                                    controller.draft += speech.transcript
-                                    speech.transcript = ""
-                                }
-                            }
-                        }
-                        .font(.footnote)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 6)
-                    }
+                        if speech.isFinishing { return }
+                        if speech.isRecording || speech.isStarting { speech.stop() }
+                        else { reader.stop(); Task { await speech.start() } }
+                    }, speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
+                       speechPartial: speech.transcript,
+                       speechFinishing: speech.isFinishing,
+                       dismissKeyboardSignal: keyboardDismissSignal)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(ChatTheme.canvas)
@@ -125,8 +102,24 @@ struct RootView: View {
         .preferredColorScheme(displayScheme)
         .environment(\.locale, language == "system" ? .current : Locale(identifier: language))
         .dynamicTypeSize(displayTextSize)
+        .onAppear {
+            speech.onCompletion = { [weak controller, weak speech] text in
+                guard let controller, !text.isEmpty else { return }
+                if !controller.draft.isEmpty { controller.draft += " " }
+                controller.draft += text
+                speech?.transcript = ""
+            }
+        }
+        .onDisappear {
+            speech.cancel()
+            speech.onCompletion = nil
+            reader.stop()
+        }
         .onChange(of: readerMuted) { _, muted in if muted { reader.stop() } }
-        .onChange(of: controller.currentID) { _, _ in speech.stop(); reader.stop() }
+        .onChange(of: settingsOpen) { _, open in
+            if open { keyboardDismissSignal &+= 1; speech.cancel(); reader.stop() }
+        }
+        .onChange(of: controller.currentID) { _, _ in speech.cancel(); reader.stop() }
         .sheet(isPresented: $settingsOpen) {
             NavigationStack { SettingsView(controller: controller) }
         }

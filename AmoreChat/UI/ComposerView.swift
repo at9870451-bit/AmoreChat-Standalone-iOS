@@ -8,6 +8,9 @@ import UIKit
 struct ComposerView: View {
     @Bindable var controller: ChatController
     let onSpeech: () -> Void
+    var speechInputActive = false
+    var speechPartial = ""
+    var speechFinishing = false
     var dismissKeyboardSignal: Int = 0
 
     @FocusState private var messageFocused: Bool
@@ -24,7 +27,7 @@ struct ComposerView: View {
     }
 
     private var canSend: Bool {
-        controller.backendReady && !controller.isLoading && !controller.isGenerating && hasContent
+        controller.backendReady && !controller.isLoading && !controller.isImporting && !controller.isGenerating && hasContent
     }
 
     var body: some View {
@@ -53,29 +56,38 @@ struct ComposerView: View {
                 }
 
                 HStack(alignment: .top, spacing: 4) {
-                    TextField("发消息或按住说话", text: $controller.draft, axis: .vertical)
-                        .lineLimit(1...5)
-                        .textInputAutocapitalization(.sentences)
-                        .submitLabel(.send)
-                        .focused($messageFocused)
-                        .onSubmit {
-                            if canSend {
-                                controller.send()
-                                messageFocused = false
-                            }
+                    if speechInputActive {
+                        HStack(spacing: 8) {
+                            Image(systemName: "waveform").foregroundStyle(ComposerColors.blue)
+                            Text(speechFinishing ? "正在整理最终文字…" :
+                                 (speechPartial.isEmpty ? "正在聆听，请说话…" : speechPartial))
+                                .lineLimit(1...5)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("composer.speech.partial")
                         }
                         .font(.system(size: 18))
-                        .tint(ComposerColors.blue)
                         .foregroundStyle(ComposerColors.text)
                         .frame(minHeight: 44, alignment: .topLeading)
-                        .accessibilityLabel("消息")
-                        .accessibilityIdentifier("composer.message")
-                        .accessibilityHint(controller.backendReady
-                            ? "输入消息，或添加附件后发送"
-                            : "草稿会保存；接入后端前无法发送")
+                    } else {
+                        TextField("发消息或点按说话", text: $controller.draft, axis: .vertical)
+                            .lineLimit(1...5)
+                            .textInputAutocapitalization(.sentences)
+                            .submitLabel(.send)
+                            .focused($messageFocused)
+                            .onSubmit {
+                                if canSend { controller.send(); messageFocused = false }
+                            }
+                            .font(.system(size: 18))
+                            .tint(ComposerColors.blue)
+                            .foregroundStyle(ComposerColors.text)
+                            .frame(minHeight: 44, alignment: .topLeading)
+                            .accessibilityLabel("消息")
+                            .accessibilityIdentifier("composer.message")
+                            .accessibilityHint(controller.backendReady
+                                ? "输入消息，或添加附件后发送"
+                                : "草稿会保存；接入后端前无法发送")
+                    }
 
-                    primaryAction
-                        .opacity(hasContent || controller.isGenerating ? 1 : 0.01)
                 }
 
                 HStack(spacing: 4) {
@@ -124,17 +136,7 @@ struct ComposerView: View {
                     .accessibilityLabel(attachmentsOpen ? "收起附件选项" : "添加附件")
                     .accessibilityIdentifier("composer.attach.toggle")
 
-                    Button(action: onSpeech) {
-                        Image(systemName: "waveform.circle")
-                            .font(.system(size: 27))
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(ComposerColors.text)
-                    .accessibilityLabel("语音输入")
-                    .accessibilityHint("开始或结束语音输入")
-                    .accessibilityIdentifier("composer.speech")
+                    primaryAction
                 }
                 .frame(height: 44)
             }
@@ -233,7 +235,7 @@ struct ComposerView: View {
             .foregroundStyle(ChatTheme.danger)
             .accessibilityLabel("停止生成")
             .accessibilityIdentifier("composer.stop")
-        } else {
+        } else if hasContent && !speechInputActive {
             Button {
                 controller.send()
                 messageFocused = false
@@ -249,8 +251,21 @@ struct ComposerView: View {
             .accessibilityLabel("发送消息")
             .accessibilityIdentifier("composer.send")
             .accessibilityHint(!controller.backendReady
-                ? "尚未接入后端，暂不能发送"
-                : (hasContent ? "发送消息和附件" : "输入消息或添加附件后发送"))
+                ? "尚未配置模型，暂不能发送"
+                : "发送消息和附件")
+        } else {
+            Button(action: onSpeech) {
+                Image(systemName: speechInputActive ? "waveform.circle.fill" : "waveform.circle")
+                    .font(.system(size: 27))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(speechFinishing)
+            .foregroundStyle(speechInputActive ? ChatTheme.accent : ComposerColors.text)
+            .accessibilityLabel(speechFinishing ? "正在整理语音" : (speechInputActive ? "结束语音输入" : "语音输入"))
+            .accessibilityIdentifier("composer.speech")
+            .accessibilityHint("点击开始实时听写，再次点击结束")
         }
     }
 

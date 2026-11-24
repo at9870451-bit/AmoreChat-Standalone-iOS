@@ -69,13 +69,6 @@ import SwiftUI
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("sidebar.new")
-                Menu {
-                    Button("整理要点") { fillPrompt("请帮我整理以下内容的要点：") }
-                    Button("解释概念") { fillPrompt("请解释以下概念，并举例说明：") }
-                    Button("编写文案") { fillPrompt("请帮我起草文案，主题是：") }
-                    Button("制定计划") { fillPrompt("请帮我制定一个计划：") }
-                } label: { Image(systemName: "sparkle.magnifyingglass").frame(width: 44, height: 44) }
-                .accessibilityLabel("快捷提问")
                 Button { managing.toggle() } label: {
                     Image(systemName: managing ? "checkmark.circle" : "list.bullet.indent")
                         .frame(width: 44, height: 44)
@@ -187,11 +180,5 @@ import SwiftUI
         .frame(minHeight: 44)
         .background(controller.currentID == session.id ? ChatTheme.surface : .clear,
                     in: RoundedRectangle(cornerRadius: 10))
-    }
-    private func fillPrompt(_ text: String) {
-        guard controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if controller.currentID == nil { controller.newChat() }
-        controller.draft = text
-        onClose()
     }
 }

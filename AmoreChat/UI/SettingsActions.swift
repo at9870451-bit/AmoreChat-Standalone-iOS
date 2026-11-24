@@ -6,6 +6,7 @@ struct DataManagementPage: View {
     @State private var exportURL: URL?
     @State private var exportError: String?
     @State private var confirmDeletion = false
+    @State private var showDeepSeekImport = false
 
     var body: some View {
         List {
@@ -22,11 +23,33 @@ struct DataManagementPage: View {
                 }
                 if let exportError { Text(exportError).foregroundStyle(.red) }
             }
+            Section("导入") {
+                Button { showDeepSeekImport = true } label: {
+                    Label("导入 DeepSeek 官方聊天 ZIP", systemImage: "square.and.arrow.down")
+                }
+                .disabled(controller.isGenerating || controller.isImporting)
+                Text("仅接受已校验的官方 ZIP v3 纯文字与思考子集；不支持附件/工具的归档会全部拒绝，不会悄悄丢消息。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("清理") {
                 Button(role: .destructive) { confirmDeletion = true } label: {
                     Label("清除本机所有会话和附件", systemImage: "trash")
                 }
-                .disabled(controller.isGenerating || controller.sessions.isEmpty)
+                .disabled(controller.isGenerating || controller.isImporting || controller.sessions.isEmpty)
+            }
+        }
+        .sheet(isPresented: $showDeepSeekImport) {
+            NavigationStack {
+                DeepSeekImportView { result in
+                    _ = try await controller.importDeepSeek(result)
+                }
+                .navigationTitle("导入聊天记录")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("关闭") { showDeepSeekImport = false }
+                    }
+                }
             }
         }
         .confirmationDialog("要清除全部本机记录吗？", isPresented: $confirmDeletion, titleVisibility: .visible) {
