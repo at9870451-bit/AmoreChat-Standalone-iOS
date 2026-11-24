@@ -219,14 +219,18 @@ struct ComposerView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingFileImporter) {
-            NativeDocumentPicker { url in
-                showingFileImporter = false
-                guard let url else { return }
+        .background {
+            NativeDocumentPicker(isPresented: $showingFileImporter) { document in
+                guard let document else { return }
                 attachmentsOpen = false
                 inputError = nil
-                Task { await controller.attach(url) }
+                Task {
+                    await controller.attach(document.url)
+                    withExtendedLifetime(document) {}
+                }
             }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
         }
     }
 

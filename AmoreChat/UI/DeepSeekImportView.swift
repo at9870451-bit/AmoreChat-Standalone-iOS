@@ -45,21 +45,22 @@ struct DeepSeekImportView: View {
         .background(ChatTheme.settingsBackground.ignoresSafeArea())
         .navigationTitle("导入聊天记录")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $showingPicker) {
-            NativeDocumentPicker { url in
-                showingPicker = false
-                if let url { prepare(url) }
+        .background {
+            NativeDocumentPicker(isPresented: $showingPicker) { document in
+                if let document { prepare(document) }
             }
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
         }
     }
 
-    private func prepare(_ url: URL) {
+    private func prepare(_ document: PickedDocument) {
         parsed = nil; notice = nil; isBusy = true
         Task { @MainActor in
             defer { isBusy = false }
             do {
                 parsed = try await Task.detached(priority: .userInitiated) {
-                    try LocalDocumentImport.loadDeepSeek(url)
+                    try LocalDocumentImport.loadDeepSeek(document.url)
                 }.value
             } catch { notice = error.localizedDescription }
         }

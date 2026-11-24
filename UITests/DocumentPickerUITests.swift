@@ -62,13 +62,13 @@ final class DocumentPickerUITests: XCTestCase {
     }
 
     private func selectDocument(named name: String, in app: XCUIApplication) {
-        let picker = XCUIApplication(bundleIdentifier: "com.apple.DocumentsApp")
-        let predicate = NSPredicate(format: "label BEGINSWITH %@", name)
-        let remoteItem = app.descendants(matching: .any).matching(predicate).firstMatch
-        let filesItem = picker.descendants(matching: .any).matching(predicate).firstMatch
-        if remoteItem.waitForExistence(timeout: 10) { remoteItem.tap(); return }
-        XCTAssertTrue(filesItem.waitForExistence(timeout: 8), "The real iOS Files picker must expose \(name)")
-        filesItem.tap()
+        let item = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", name)).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 18), "The iOS Files picker must show \(name)")
+        // Send the touch through the screen root, not as an accessibility action
+        // targeting the cross-process file cell inside the remote controller.
+        let target = item.frame
+        app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: target.midX, dy: target.minY + min(37, target.height / 2))).tap()
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {
