@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import UniformTypeIdentifiers
+import OSLog
 
 /// Keep the picker-granted read scope alive until background copying completes.
 final class PickedDocument: Sendable {
@@ -64,14 +65,10 @@ struct NativeDocumentPicker: UIViewControllerRepresentable {
                 }
                 // Some providers label a valid ZIP as generic data. Validate the
                 // archive after selection, not by the provider's advertised type.
-                let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: false)
+                let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
                 picker.allowsMultipleSelection = false
                 picker.delegate = self
-                #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--document-ui-test") {
-                    picker.directoryURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-                }
-                #endif
+                picker.modalPresentationStyle = .formSheet
                 self.delivered = false
                 self.picker = picker
                 presenter.present(picker, animated: true)
@@ -95,6 +92,10 @@ struct NativeDocumentPicker: UIViewControllerRepresentable {
         private func finish(_ document: PickedDocument?) {
             guard !delivered else { return }
             delivered = true
+            #if DEBUG
+            Logger(subsystem: "app.amorechat.standalone.documents", category: "picker")
+                .notice("System document picker finished; has selection: \(document != nil, privacy: .public)")
+            #endif
             configuration.isPresented = false
             configuration.onSelection(document)
         }

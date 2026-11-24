@@ -5,7 +5,6 @@ import Foundation
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("--isolated-ui-test") {
-            if arguments.contains("--document-ui-test") { UITestDocuments.seed() }
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ChatUITest-\(UUID().uuidString)", isDirectory: true)
             let archive = ChatArchive(root: root)

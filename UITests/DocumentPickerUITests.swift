@@ -4,7 +4,7 @@ final class DocumentPickerUITests: XCTestCase {
     func testPickChatFileAndHistoryZIP() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments += ["--isolated-ui-test", "--stream-ui-test", "--document-ui-test",
+        app.launchArguments += ["--isolated-ui-test", "--stream-ui-test",
                                 "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
                                 "-standalone.appearance", "dark"]
         app.launch()
@@ -62,13 +62,27 @@ final class DocumentPickerUITests: XCTestCase {
     }
 
     private func selectDocument(named name: String, in app: XCUIApplication) {
-        let item = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", name)).firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: 18), "The iOS Files picker must show \(name)")
-        // Send the touch through the screen root, not as an accessibility action
-        // targeting the cross-process file cell inside the remote controller.
-        let target = item.frame
-        app.coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: target.midX, dy: target.minY + min(37, target.height / 2))).tap()
+        let item = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
+        if !item.waitForExistence(timeout: 3) {
+            let folder = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@", "Picker Fixtures")).firstMatch
+            if !folder.waitForExistence(timeout: 2) {
+                let browse = app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "浏览", "Browse")).firstMatch
+                if browse.exists { browse.tap() }
+                if !folder.waitForExistence(timeout: 2) {
+                    let local = app.cells.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "我的iPhone", "On My iPhone")).firstMatch
+                    if local.waitForExistence(timeout: 5) { local.tap() }
+                }
+            }
+            XCTAssertTrue(folder.waitForExistence(timeout: 8), "The test provider should be visible in Files")
+            tapFileIcon(folder)
+        }
+        XCTAssertTrue(item.waitForExistence(timeout: 12), "The iOS Files picker must show \(name)")
+        capture(app, "picker-\(name)")
+        tapFileIcon(item)
+    }
+
+    private func tapFileIcon(_ item: XCUIElement) {
+        item.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: item.frame.height > 90 ? 0.22 : 0.50)).tap()
     }
 
     private func capture(_ app: XCUIApplication, _ name: String) {
