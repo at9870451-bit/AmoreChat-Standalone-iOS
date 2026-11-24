@@ -1,17 +1,16 @@
 #if DEBUG
 import Foundation
 
-/// Built only for the simulator selection test. The real Files picker reads
-/// these synthetic files from On My iPhone, not an injected picker callback.
+/// Synthetic Documents/Imports files for the local-folder UI regression.
+/// The independent system-picker tests use a different app's Files location.
 enum UITestDocuments {
-    static func seed() {
-        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+    static func seedImportFolder() {
         do {
-            try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+            let folder = try ImportFolder.directory()
             try Data("A small synthetic note.\n".utf8)
-                .write(to: documents.appendingPathComponent("Amore-Picker-Note.txt"), options: .atomic)
+                .write(to: folder.appendingPathComponent("Amore-Picker-Note.txt"), options: .atomic)
             if let zip = Data(base64Encoded: fixture) {
-                try zip.write(to: documents.appendingPathComponent("Amore-Picker-History.zip"), options: .atomic)
+                try zip.write(to: folder.appendingPathComponent("Amore-Picker-History.zip"), options: .atomic)
             }
         } catch {
             assertionFailure("Could not create simulator document fixtures.")

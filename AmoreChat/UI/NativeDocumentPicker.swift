@@ -16,9 +16,8 @@ final class PickedDocument: Sendable {
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
 }
 
-/// Present Files as its own UIKit modal so Files (rather than a wrapping SwiftUI
-/// sheet) controls selection and dismissal. Open in place for read access only;
-/// the importer copies into its own sandbox and never edits the selected file.
+/// Present Files as its own UIKit modal so Files controls selection and dismissal.
+/// Ask for an imported copy; the source file is never edited.
 @MainActor
 struct NativeDocumentPicker: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
@@ -65,7 +64,7 @@ struct NativeDocumentPicker: UIViewControllerRepresentable {
                 }
                 // Some providers label a valid ZIP as generic data. Validate the
                 // archive after selection, not by the provider's advertised type.
-                let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
+                let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
                 picker.allowsMultipleSelection = false
                 picker.delegate = self
                 picker.modalPresentationStyle = .formSheet

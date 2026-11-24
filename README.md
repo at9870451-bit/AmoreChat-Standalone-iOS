@@ -13,8 +13,14 @@
 
 外观支持系统跟随与强制浅／深色，个性化开关可在思考结束后自动折叠。朗读音色使用 iOS 系统音色，可滑动、试听并确认保存，不冒充 DeepSeek 的云端音色。数据管理支持本地 JSON 导出、清除和 DeepSeek ZIP v3 导入。导入参考 [DeepSeek 官网归档的公开读取规范](https://github.com/deepseek-ai/deepseek-harness/blob/4b399c39a6d1479cd84ca591b4d7c88e24d38a96/packages/experimental/deepseek-chat-import/README.zh.md)：已完成的纯文字／思考子集保留时间、思考耗时（若有）和分支；分支作为单独会话，重复导入去重，不覆盖本机记录。含附件、工具、模板或不支持状态的归档会整包拒绝。只有公开格式和合成样本，没有实测用户的 iOS 官方导出文件。没有云账号，移除不可用的退出登录；服务协议及权限页仅说明本应用的真实行为。公式支持有限 LaTeX 子集。
 
+## 从文件导入
+
+- 聊天附件：点输入栏 `＋ → 文件`。选择完成后复制到本机草稿，不会自动发送；文件卡片显示真实文件名和大小。
+- DeepSeek 历史：侧栏 → 设置 → 数据管理 → 导入 DeepSeek 官方聊天 ZIP。选择原 ZIP，不要先解压；预览后再确认合并。导入仅支持上文所述 v3 子集。
+- 如果系统「文件」能显示却交不回所选文件：在「我的 iPhone → AmoreChat → Imports」复制一份，返回相应入口的「本机导入文件夹」，刷新并选择。只有用户放入 Documents 的文件会在「文件」中可见；会话库、已归档附件和钥匙串不在该目录。
+
 ## 构建
 
-需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.3.0`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
+需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.3.1`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
 
 项目结构：`AmoreChat/App.swift` App 入口与导航；`Core/ChatModels.swift` 数据与后端协议；`Core/ChatController.swift` 状态与流式生命周期；`Core/ChatArchive.swift` 本地原子持久化；`Core/SpeechInput.swift` 原生语音服务；`UI/` 全部独立 SwiftUI 组件。原创应用图标由 `scripts/make_icon.py` 生成。

@@ -3,7 +3,9 @@ import SwiftUI
 /// File selection and validation do not mutate the chat store. Only confirmation commits.
 struct DeepSeekImportView: View {
     let onCommit: @MainActor (DeepSeekImportResult) async throws -> (added: Int, duplicates: Int)
+    @Environment(\.dismiss) private var dismiss
     @State private var showingPicker = false
+    @State private var showingImportFolder = false
     @State private var parsed: DeepSeekImportResult?
     @State private var isBusy = false
     @State private var notice: String?
@@ -34,6 +36,9 @@ struct DeepSeekImportView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(isBusy)
                 .accessibilityIdentifier("history.import.pick")
+            Button("本机导入文件夹") { showingImportFolder = true }
+                .disabled(isBusy)
+                .accessibilityIdentifier("history.import.folder")
             if isBusy { ProgressView("正在处理…") }
             if let notice {
                 Text(notice).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
@@ -45,6 +50,15 @@ struct DeepSeekImportView: View {
         .background(ChatTheme.settingsBackground.ignoresSafeArea())
         .navigationTitle("导入聊天记录")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("返回") { dismiss() }.disabled(isBusy)
+                    .accessibilityIdentifier("history.import.back")
+            }
+        }
+        .sheet(isPresented: $showingImportFolder) {
+            ImportFolderView(zipOnly: true) { url in prepare(PickedDocument(url)) }
+        }
         .background {
             NativeDocumentPicker(isPresented: $showingPicker) { document in
                 if let document { prepare(document) }

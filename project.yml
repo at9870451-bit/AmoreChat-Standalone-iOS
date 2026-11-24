@@ -31,6 +31,8 @@ targets:
       path: AmoreChat/Info.plist
       properties:
         CFBundleDisplayName: AmoreChat
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         NSSpeechRecognitionUsageDescription: 将您的语音转成输入文字，仅在您点击语音按钮后使用。
         NSMicrophoneUsageDescription: 仅在您主动录入语音时使用麦克风。

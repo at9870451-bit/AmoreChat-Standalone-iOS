@@ -23,6 +23,7 @@ struct ComposerView: View {
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var showingCamera = false
     @State private var showingFileImporter = false
+    @State private var showingImportFolder = false
     @State private var confirmPaidSearch = false
     @State private var inputError: String?
     @State private var modeNotice: String?
@@ -159,10 +160,21 @@ struct ComposerView: View {
             }
 
             if attachmentsOpen {
-                attachmentTiles
-                    .padding(.horizontal, 4)
-                    .padding(.top, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                VStack(alignment: .trailing, spacing: 4) {
+                    attachmentTiles
+                    Button {
+                        showingImportFolder = true
+                    } label: {
+                        Label("本机导入文件夹", systemImage: "folder")
+                            .font(.footnote).foregroundStyle(ChatTheme.muted)
+                            .padding(.horizontal, 6).frame(minHeight: 38)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("composer.attach.folder")
+                }
+                .padding(.horizontal, 4)
+                .padding(.top, 15)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 12)
@@ -221,16 +233,23 @@ struct ComposerView: View {
         }
         .background {
             NativeDocumentPicker(isPresented: $showingFileImporter) { document in
-                guard let document else { return }
-                attachmentsOpen = false
-                inputError = nil
-                Task {
-                    await controller.attach(document.url)
-                    withExtendedLifetime(document) {}
-                }
+                if let document { importDocument(document) }
             }
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
+        }
+        .sheet(isPresented: $showingImportFolder) {
+            ImportFolderView(zipOnly: false) { url in importDocument(PickedDocument(url)) }
+        }
+    }
+
+    private func importDocument(_ document: PickedDocument) {
+        attachmentsOpen = false
+        voiceMode = false
+        inputError = nil
+        Task {
+            await controller.attach(document.url)
+            withExtendedLifetime(document) {}
         }
     }
 

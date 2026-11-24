@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [chat, dark, light]
+        suite: [chat, dark, light, files18]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -29,14 +29,20 @@ jobs:
       - name: Build for iOS Simulator
         run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
       - name: Boot iPhone simulator
+        env:
+          SUITE: ${{ matrix.suite }}
         run: |
-          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(d["udid"] for key in sorted(devices, reverse=True) for d in devices[key] if d["name"] == "iPhone 17"))')
+          if [ "$SUITE" = files18 ]; then
+            DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(d["udid"] for key in sorted(devices, reverse=True) if ".iOS-18-" in key for d in devices[key] if d["name"] == "iPhone 16"))')
+          else
+            DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(d["udid"] for key in sorted(devices, reverse=True) for d in devices[key] if d["name"] == "iPhone 17"))')
+          fi
           xcrun simctl bootstatus "$DEVICE" -b
           printf 'SIMULATOR_ID=%s\n' "$DEVICE" >> "$GITHUB_ENV"
       - name: Build tests once
         run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/ChatTests" CODE_SIGNING_ALLOWED=NO build-for-testing
       - name: Prepare local Files provider fixtures
-        if: matrix.suite == 'chat'
+        if: matrix.suite == 'files18'
         shell: bash
         run: |
           bash scripts/seed_picker_fixture.sh "$SIMULATOR_ID" "$RUNNER_TEMP/ChatTests/Build/Products/Debug-iphonesimulator/AmoreChatStandalone.app"
@@ -47,15 +53,16 @@ jobs:
         run: |
           set -euo pipefail
           case "$SUITE" in
-            chat) style=light; filter=-skip-testing:AmoreChatStandaloneUITests/AppearanceUITests ;;
-            dark) style=dark; filter=-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstDarkSystem ;;
-            light) style=light; filter=-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstLightSystem ;;
+            chat) style=light; filters=(-skip-testing:AmoreChatStandaloneUITests/AppearanceUITests -skip-testing:AmoreChatStandaloneUITests/DocumentPickerUITests/testPickChatFileAndHistoryZIP) ;;
+            files18) style=light; filters=(-only-testing:AmoreChatStandaloneUITests/DocumentPickerUITests/testPickChatFileAndHistoryZIP) ;;
+            dark) style=dark; filters=(-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstDarkSystem) ;;
+            light) style=light; filters=(-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstLightSystem) ;;
           esac
           xcrun simctl ui "$SIMULATOR_ID" appearance "$style"
           xcrun simctl ui "$SIMULATOR_ID" appearance
           xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -parallel-testing-enabled NO \
-            -derivedDataPath "$RUNNER_TEMP/ChatTests" CODE_SIGNING_ALLOWED=NO "$filter" \
+            -derivedDataPath "$RUNNER_TEMP/ChatTests" CODE_SIGNING_ALLOWED=NO "${filters[@]}" \
             -resultBundlePath "$RUNNER_TEMP/AmoreChatScreens.xcresult" test-without-building
       - name: Export UI screenshots
         if: always()
@@ -65,7 +72,7 @@ jobs:
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/AmoreChatScreens.xcresult" --output-path screenshots || true
           fi
       - name: Export synthetic Files diagnostics on failure
-        if: failure() && matrix.suite == 'chat' && env.SIMULATOR_ID != ''
+        if: failure() && matrix.suite == 'files18' && env.SIMULATOR_ID != ''
         run: |
           mkdir -p screenshots
           xcrun simctl spawn "$SIMULATOR_ID" log show --last 10m --predicate 'subsystem BEGINSWITH "com.apple.FileProvider" OR subsystem BEGINSWITH "com.apple.DocumentManager" OR subsystem == "app.amorechat.standalone.documents"' > screenshots/file-provider.log || true

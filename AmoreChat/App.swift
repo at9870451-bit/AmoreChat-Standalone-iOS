@@ -134,6 +134,10 @@ struct RootView: View {
         .background { WindowAppearance(mode: appearanceMode).frame(width: 0, height: 0) }
         .environment(\.locale, language == "system" ? .current : Locale(identifier: language))
         .dynamicTypeSize(displayTextSize)
+        .task {
+            // Make the user-managed destination available in Files on first launch.
+            await Task.detached(priority: .utility) { _ = try? ImportFolder.directory() }.value
+        }
         .onAppear {
             speech.onCompletion = { [weak controller, weak speech] text in
                 guard let controller, !text.isEmpty else { return }
