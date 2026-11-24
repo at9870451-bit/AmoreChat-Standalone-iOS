@@ -87,10 +87,27 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
         XCTAssertEqual(messages.count, 4)
         XCTAssertEqual(messages.first?["role"] as? String, "system")
-        XCTAssertTrue((messages.first?["content"] as? String)?.contains("个人 AI 助手") == true)
+        XCTAssertEqual(messages.first?["content"] as? String, BuiltInPersona.instruction)
         XCTAssertEqual(messages[2]["content"] as? String, "previous")
         XCTAssertNil(messages[2]["reasoning"])
         XCTAssertNil(messages[2]["reasoning_content"])
+    }
+
+    func testPersonaPreservesTopicQueryAndExistingPlayContext() throws {
+        let topic = [ChatMessage(role: .user, content: "剧情游戏")]
+        let play = [ChatMessage(role: .user, content: "请主持一段很短的文字冒险。"),
+                    ChatMessage(role: .assistant, content: "你想玩哪种题材？"),
+                    ChatMessage(role: .user, content: "悬疑")]
+        let adapter = backend(profile(.deepSeek, appendV1: false))
+        for conversation in [topic, play] {
+            let request = try adapter.requestBody(messages: conversation, options: plain)
+            let body = try XCTUnwrap(JSONSerialization.jsonObject(with: request) as? [String: Any])
+            let sent = try XCTUnwrap(body["messages"] as? [[String: String]])
+            let expected = [["role": "system", "content": BuiltInPersona.instruction]] + conversation.map {
+                ["role": $0.role.rawValue, "content": $0.content]
+            }
+            XCTAssertEqual(sent, expected)
+        }
     }
 
     func testRejectsInvalidURLAndUnsupportedSearchBeforeNetwork() async throws {
