@@ -409,7 +409,7 @@ private final class SpeechCallbackSequence: @unchecked Sendable {
                 self?.audioChanged(id: id, message: "音频服务已重置，请重新点击麦克风继续。")
             }
         })
-        notificationTokens.append(center.addObserver(forName: AVAudioEngine.configurationChangeNotification,
+        notificationTokens.append(center.addObserver(forName: Notification.Name.AVAudioEngineConfigurationChange,
                                                        object: engine, queue: nil) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.audioChanged(id: id, message: "音频配置已更改，请重新点击麦克风继续。")
