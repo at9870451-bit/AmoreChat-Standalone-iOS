@@ -29,6 +29,18 @@ enum ModelAPIFormat: String, Codable, CaseIterable, Sendable {
     var displayName: String { "Chat Completions" }
 }
 
+enum CompatibleThinking: String, Codable, CaseIterable, Sendable {
+    case deepSeekSwitch, reasoningEffort, openRouterReasoning
+
+    var displayName: String {
+        switch self {
+        case .deepSeekSwitch: "DeepSeek：thinking.type"
+        case .reasoningEffort: "OpenAI：reasoning_effort"
+        case .openRouterReasoning: "OpenRouter：reasoning.enabled"
+        }
+    }
+}
+
 struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var id: UUID
     var label: String
@@ -37,6 +49,8 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var modelID: String
     var appendV1: Bool
     var format: ModelAPIFormat
+    var compatibleThinking: CompatibleThinking? = nil
+    var compatibleWebSearch: Bool? = nil
 
     private var apiHost: String? {
         guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1),
@@ -44,20 +58,23 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
         return url.host?.lowercased()
     }
 
-    var allowsThinking: Bool {
+    var thinkingProtocol: CompatibleThinking? {
         switch provider {
-        case .deepSeek: apiHost == "api.deepseek.com"
-        case .openAI: apiHost == "api.openai.com"
-        case .openRouter: apiHost == "openrouter.ai"
-        case .custom: false
+        case .deepSeek where apiHost == "api.deepseek.com": .deepSeekSwitch
+        case .openAI where apiHost == "api.openai.com": .reasoningEffort
+        case .openRouter where apiHost == "openrouter.ai": .openRouterReasoning
+        case .custom: compatibleThinking
+        default: nil
         }
     }
 
+    var allowsThinking: Bool { thinkingProtocol != nil }
+
     var allowsWebSearch: Bool {
-        guard provider == .openRouter,
-              let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1),
-              apiHost == "openrouter.ai" else { return false }
-        return url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "api/v1"
+        guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1) else { return false }
+        if provider == .custom { return compatibleWebSearch == true }
+        return provider == .openRouter && apiHost == "openrouter.ai"
+            && url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "api/v1"
     }
 
     init(id: UUID = UUID(), label: String = "", provider: ModelProvider = .deepSeek,

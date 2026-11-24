@@ -123,6 +123,23 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         XCTAssertFalse(profile(.deepSeek, base: "https://example.com").allowsThinking)
     }
 
+    func testCustomModelOnlySendsExplicitlyConfiguredOptions() throws {
+        var custom = profile(.custom, base: "https://example.com/v1", appendV1: false)
+        let options = ChatOptions(deepThinking: true, webSearch: true)
+        func payload(_ profile: ModelProfile) throws -> [String: Any] {
+            let body = try backend(profile).requestBody(messages: history, options: options)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        }
+        XCTAssertNil(try payload(custom)["plugins"])
+        XCTAssertNil(try payload(custom)["thinking"])
+        custom.compatibleThinking = .deepSeekSwitch
+        custom.compatibleWebSearch = true
+        let json = try payload(custom)
+        XCTAssertEqual((json["thinking"] as? [String: String])?["type"], "enabled")
+        XCTAssertEqual((json["plugins"] as? [[String: String]])?.first?["id"], "web")
+        XCTAssertTrue(custom.allowsThinking && custom.allowsWebSearch)
+    }
+
     func testErrorBodyNeverAppearsInUserFacingMessage() async throws {
         StreamingURLProtocol.status = 401
         StreamingURLProtocol.lines = [Data("fixture-fake-secret server detail".utf8)]

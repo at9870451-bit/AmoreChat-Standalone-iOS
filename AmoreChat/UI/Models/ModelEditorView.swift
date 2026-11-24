@@ -14,6 +14,8 @@ struct ModelEditorView: View {
     @State private var baseURL: String
     @State private var appendV1: Bool
     @State private var modelID: String
+    @State private var compatibleThinking: CompatibleThinking?
+    @State private var compatibleWebSearch: Bool
     @State private var apiKey = ""
     @State private var revealsKey = false
     @State private var availableModels: [String] = []
@@ -34,6 +36,8 @@ struct ModelEditorView: View {
         _baseURL = State(initialValue: existing?.baseURL ?? initialProvider.defaultBaseURL)
         _appendV1 = State(initialValue: existing?.appendV1 ?? initialProvider.defaultAppendV1)
         _modelID = State(initialValue: existing?.modelID ?? "")
+        _compatibleThinking = State(initialValue: existing?.compatibleThinking)
+        _compatibleWebSearch = State(initialValue: existing?.compatibleWebSearch == true)
     }
 
     var body: some View {
@@ -143,6 +147,21 @@ struct ModelEditorView: View {
             } footer: {
                 Text("可手动输入模型 ID；获取列表会使用上方地址和密钥向该服务商发送 /models 请求。能获取列表不保证模型可用于聊天。")
             }
+            if provider == .custom {
+                Section {
+                    Picker("深度思考协议", selection: $compatibleThinking) {
+                        Text("未配置").tag(Optional<CompatibleThinking>.none)
+                        ForEach(CompatibleThinking.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(Optional(mode))
+                        }
+                    }
+                    Toggle("兼容 OpenRouter 网页搜索插件", isOn: $compatibleWebSearch)
+                } header: {
+                    Text("模型能力")
+                } footer: {
+                    Text("只按服务商文档选用。兼容搜索发送 plugins: web；不兼容的接口可能报错或忽略选项。开启搜索仍需确认费用。")
+                }
+            }
         }
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle(existing == nil ? "添加模型" : "编辑模型")
@@ -230,10 +249,15 @@ struct ModelEditorView: View {
         guard !(appendV1 && Self.hasV1Suffix(normalizedBaseURL)) else {
             throw EditorValidationError.message("地址已经包含 /v1，请关闭“地址后追加 /v1”。")
         }
-        return ModelProfile(id: existing?.id ?? UUID(), label: cleanLabel,
-                            provider: provider, baseURL: normalizedBaseURL,
-                            modelID: cleanModel, appendV1: appendV1,
-                            format: .chatCompletions)
+        var result = ModelProfile(id: existing?.id ?? UUID(), label: cleanLabel,
+                                  provider: provider, baseURL: normalizedBaseURL,
+                                  modelID: cleanModel, appendV1: appendV1,
+                                  format: .chatCompletions)
+        if provider == .custom {
+            result.compatibleThinking = compatibleThinking
+            result.compatibleWebSearch = compatibleWebSearch ? true : nil
+        }
+        return result
     }
 
     private func resolvedKey() throws -> String {

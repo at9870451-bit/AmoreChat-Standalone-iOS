@@ -24,6 +24,7 @@ struct RootView: View {
     @State private var historyJump: HistoryJump?
     @State private var keyboardDismissSignal = 0
     @State private var speechStartTask: Task<Void, Never>?
+    @State private var speechPermissionTask: Task<Void, Never>?
     @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
@@ -75,9 +76,11 @@ struct RootView: View {
                             else { reader.read(text, voiceID: readerVoiceID) }
                         }, onBackgroundTap: { keyboardDismissSignal &+= 1 }, jump: historyJump)
                     }
-                    ComposerView(controller: controller, onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
+                    ComposerView(controller: controller, onVoiceModeEntered: prepareSpeech,
+                                 onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
                                  speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
                                  speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
+                                 speechPermissionPending: speech.requestingPermission,
                                  dismissKeyboardSignal: keyboardDismissSignal)
                     if !controller.messages.isEmpty {
                         Text("回答由 AI 生成，仅供参考")
@@ -173,8 +176,18 @@ struct RootView: View {
         }
     }
 
+    private func prepareSpeech() {
+        guard !speech.hasPermissions, !speech.requestingPermission else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--isolated-ui-test") { return }
+        #endif
+        speechPermissionTask?.cancel()
+        speechPermissionTask = Task { guard !Task.isCancelled else { return }; await speech.preparePermissions() }
+    }
+
     private func beginSpeech() {
         guard !controller.isGenerating && !controller.isImporting else { return }
+        guard speech.hasPermissions else { prepareSpeech(); return }
         reader.stop()
         keyboardDismissSignal &+= 1
         speechStartTask?.cancel()
@@ -194,6 +207,8 @@ struct RootView: View {
     private func cancelSpeech() {
         speechStartTask?.cancel()
         speechStartTask = nil
+        speechPermissionTask?.cancel()
+        speechPermissionTask = nil
         speech.cancel()
     }
 

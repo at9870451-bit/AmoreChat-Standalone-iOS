@@ -145,6 +145,7 @@ private final class SpeechCallbackSequence: @unchecked Sendable {
     private(set) var isRecording = false
     private(set) var isStarting = false
     private(set) var isFinishing = false
+    private(set) var requestingPermission = false
     var errorText: String?
 
     /// A partial is the entire current utterance. Called on the main actor when it changes.
@@ -165,34 +166,49 @@ private final class SpeechCallbackSequence: @unchecked Sendable {
     @ObservationIgnored private var notificationTokens: [NSObjectProtocol] = []
     @ObservationIgnored private var finishTimeout: Task<Void, Never>?
 
-    func toggle() async {
-        if isRecording || isStarting { stop() }
-        else if !isFinishing { await start() }
+    var hasPermissions: Bool {
+        SFSpeechRecognizer.authorizationStatus() == .authorized &&
+            AVAudioApplication.shared.recordPermission == .granted
     }
 
-    /// Starts streaming microphone buffers immediately after both system permissions are granted.
-    /// Defaults to the app's original Chinese recognizer; callers can supply another locale.
+    /// Permission dialogs interrupt the press gesture. Request them on entering
+    /// voice mode (or after a revoked permission), then wait for a fresh press.
+    func preparePermissions() async {
+        guard !hasPermissions, !requestingPermission else { return }
+        requestingPermission = true
+        errorText = nil
+        defer { requestingPermission = false }
+        let speechAuthorized = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            if SFSpeechRecognizer.authorizationStatus() == .authorized {
+                continuation.resume(returning: true)
+            } else if SFSpeechRecognizer.authorizationStatus() == .notDetermined {
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status == .authorized)
+                }
+            } else {
+                continuation.resume(returning: false)
+            }
+        }
+        guard !Task.isCancelled else { return }
+        guard speechAuthorized else { errorText = "请在系统设置中允许语音识别。"; return }
+        let microphoneAuthorized = await AVAudioApplication.requestRecordPermission()
+        if !Task.isCancelled && !microphoneAuthorized { errorText = "请在系统设置中允许麦克风。" }
+    }
+
+    /// Starts streaming microphone buffers only while the user holds the pad.
     func start(locale: Locale = Locale(identifier: "zh-CN")) async {
+        guard !Task.isCancelled, !requestingPermission else { return }
+        guard hasPermissions else { await preparePermissions(); return }
         guard let id = state.begin() else { return }
         updatePhase()
         transcript = ""
         errorText = nil
 
-        let speechAuthorized = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            if SFSpeechRecognizer.authorizationStatus() == .authorized {
-                continuation.resume(returning: true)
-            } else {
-                SFSpeechRecognizer.requestAuthorization { status in
-                    continuation.resume(returning: status == .authorized)
-                }
-            }
-        }
-        guard state.sessionID == id, state.phase == .starting else { return }
-        guard speechAuthorized else { failStart(id, message: "请在系统设置中允许语音识别。"); return }
-        let microphoneAuthorized = await AVAudioApplication.requestRecordPermission()
-        guard state.sessionID == id, state.phase == .starting else { return }
-        guard microphoneAuthorized else { failStart(id, message: "请在系统设置中允许麦克风。"); return }
-        guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
+        let language = locale.language.languageCode?.identifier ?? "zh"
+        let region = locale.region?.identifier
+        let fallback = language == "zh" ? (locale.language.script?.identifier == "Hant" ? "zh-TW" : "zh-CN") : "\(language)-\(region ?? "US")"
+        let locales = [locale, Locale(identifier: fallback)]
+        guard let recognizer = locales.lazy.compactMap({ SFSpeechRecognizer(locale: $0) }).first(where: \.isAvailable) else {
             failStart(id, message: "当前无法使用语音识别。")
             return
         }

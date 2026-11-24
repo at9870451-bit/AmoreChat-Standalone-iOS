@@ -21,8 +21,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(spacing: 23) {
                 header
-                card {
-                    row("账户管理", symbol: "person.crop.circle", page: .account)
+                section("账户") {
+                    row("账号管理", symbol: "person.crop.circle", page: .account)
                     separator
                     row("数据管理", symbol: "externaldrive", page: .data)
                 }

@@ -83,6 +83,41 @@ final class DeepSeekImportTests: XCTestCase {
         XCTAssertEqual(first.messages.dropFirst().first?.reasoningDuration, 1.2)
     }
 
+    func testRealDeflatePayloadAndUnorderedV3Entries() throws {
+        // Python zipfile/ZIP_DEFLATED, no private data. Manifest deliberately last.
+        let encoded = "UEsDBBQAAAAIAMBkeF3qDWnsPgAAAGIAAAAXAAAAY2hhdF9zZXNzaW9uX2luZGV4Lmpzb26LrlbKTFGyUipOzC3ISVXSUcrMK04tKklNiU8sAQobGRiZ6Roa6hoahRgYWIGRnoGBQRRQYWlBSiJhdbWxAFBLAwQUAAAACADAZHhd4bli+7QAAAAHAQAAGQAAAGNoYXRfc2Vzc2lvbnMvc2FtcGxlLmpzb26Vjd0KwjAMhV9l5HqTbogXvRNWcSCibt5MRIrLpND90GagiO9uOp9AEgg5J/nOG0wDErzuRosQAxniKWFjnjS5oJjeoyNsbppYz0S2StI0SbNKCDn3QghR82GH3usHepCX90wVMYzaYU+3sPWTtTG4YcafS3XiF0+aJh/iin1RblX+T17r9KNj+i+QXmMAn9TxrMqK7fvQE7usbdHaIWrd0EV1cVgtk9YhRrna7NaVgs+V6wtQSwMEFAAAAAgAwGR4XR/IYiMdAAAAGwAAAA0AAABtYW5pZmVzdC5qc29uq1ZKrSjILyqJT8svyk0siS9LLSrOzM9TsjKuBQBQSwECFAMUAAAACADAZHhd6g1p7D4AAABiAAAAFwAAAAAAAAAAAAAAgAEAAAAAY2hhdF9zZXNzaW9uX2luZGV4Lmpzb25QSwECFAMUAAAACADAZHhd4bli+7QAAAAHAQAAGQAAAAAAAAAAAAAAgAFzAAAAY2hhdF9zZXNzaW9ucy9zYW1wbGUuanNvblBLAQIUAxQAAAAIAMBkeF0fyGIjHQAAABsAAAANAAAAAAAAAAAAAACAAV4BAABtYW5pZmVzdC5qc29uUEsFBgAAAAADAAMAxwAAAKYBAAAAAA=="
+        let data = try XCTUnwrap(Data(base64Encoded: encoded))
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try data.write(to: url)
+        let result = try DeepSeekImport.parse(url)
+        XCTAssertEqual(result.sessions.first?.messages.first?.content, "Hello from ZIP64-free DEFLATE")
+    }
+
+    @MainActor func testCommitMergesWithoutOverwritingLocalDraftAndDeduplicates() async throws {
+        let (manifest, session, index) = example()
+        let result = try parse([("manifest.json", manifest), ("chat_sessions/synthetic-1.json", session),
+                                ("chat_session_index.json", index)])
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = ChatArchive(root: root)
+        let controller = ChatController(archive: archive, backend: UnconfiguredBackend())
+        await controller.load()
+        controller.newChat()
+        let localID = try XCTUnwrap(controller.currentID)
+        controller.draft = "本地未发送草稿"
+        let first = try await controller.importDeepSeek(result)
+        XCTAssertEqual(first.added, 2)
+        XCTAssertEqual(first.duplicates, 0)
+        let second = try await controller.importDeepSeek(result)
+        XCTAssertEqual(second.added, 0)
+        XCTAssertEqual(second.duplicates, 2)
+        let saved = try await archive.load()
+        XCTAssertEqual(saved.count, 3)
+        XCTAssertEqual(saved.first(where: { $0.id == localID })?.draft, "本地未发送草稿")
+        XCTAssertEqual(controller.currentID, localID)
+    }
+
     func testUnexpectedOrTruncatedMessagesFailWithoutPartialResult() throws {
         let (manifest, session, index) = example()
         XCTAssertThrowsError(try parse([("manifest.json", manifest),

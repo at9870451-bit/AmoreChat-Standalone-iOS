@@ -7,11 +7,13 @@ import UIKit
 @MainActor
 struct ComposerView: View {
     @Bindable var controller: ChatController
+    let onVoiceModeEntered: () -> Void
     let onSpeechStart: () -> Void
     let onSpeechStop: () -> Void
     var speechInputActive = false
     var speechPartial = ""
     var speechFinishing = false
+    var speechPermissionPending = false
     var dismissKeyboardSignal: Int = 0
 
     @FocusState private var messageFocused: Bool
@@ -94,7 +96,7 @@ struct ComposerView: View {
                                 else if !controller.backendReady {
                                     controller.errorText = "请先在设置中添加可用的 AI 模型。"
                                 } else if !controller.supportsWebSearch {
-                                    controller.errorText = "当前服务商未提供已验证的联网搜索。请选择官方 OpenRouter 地址。"
+                                    controller.errorText = "当前接口未配置联网搜索。可使用官方 OpenRouter，或按服务商文档配置兼容搜索协议。"
                                 } else {
                                     confirmPaidSearch = true
                                 }
@@ -153,7 +155,7 @@ struct ComposerView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("只在你选用官方 OpenRouter API 时发送 web 插件请求；模型调用和搜索可能分别计费。后续每次发送时此模式仍会保持开启，直到你关闭。")
+            Text("会把网页搜索选项和聊天请求发送到当前配置的模型接口。搜索可能额外计费，后续发送也会使用，直到关闭或更改模型。兼容接口是否实际支持搜索，以服务商为准。")
         }
         .onChange(of: controller.supportsThinking) { _, supported in
             if !supported { controller.thinkingEnabled = false }
@@ -217,8 +219,8 @@ struct ComposerView: View {
     }
 
     private var voicePad: some View {
-        Text(speechFinishing ? "正在整理最终文字…" :
-             (speechPartial.isEmpty ? (holdingToSpeak || speechInputActive ? "正在聆听…" : "按住说话") : speechPartial))
+        Text(speechPermissionPending ? "正在等待系统授权…" : (speechFinishing ? "正在整理最终文字…" :
+             (speechPartial.isEmpty ? (holdingToSpeak || speechInputActive ? "正在聆听…" : "按住说话") : speechPartial)))
             .font(.body.weight(.semibold))
             .foregroundStyle(speechInputActive ? ComposerColors.blue : ComposerColors.text)
             .lineLimit(1...5)
@@ -227,7 +229,8 @@ struct ComposerView: View {
             .gesture(DragGesture(minimumDistance: 0).updating($voiceTouchDown) { _, down, _ in down = true })
             .onChange(of: voiceTouchDown) { _, down in
                 if down {
-                    guard !controller.isGenerating, !controller.isImporting, !speechInputActive else { return }
+                    guard !controller.isGenerating, !controller.isImporting,
+                          !speechInputActive, !speechPermissionPending else { return }
                     holdingToSpeak = true
                     onSpeechStart()
                 } else if holdingToSpeak {
@@ -282,6 +285,7 @@ struct ComposerView: View {
                 voiceMode.toggle()
                 attachmentsOpen = false
                 messageFocused = !voiceMode
+                if voiceMode { onVoiceModeEntered() }
             } label: {
                 Image(systemName: speechInputActive ? "waveform.circle.fill" : (voiceMode ? "keyboard.circle" : "waveform.circle"))
                     .font(.system(size: 27))

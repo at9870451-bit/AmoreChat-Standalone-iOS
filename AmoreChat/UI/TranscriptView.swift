@@ -53,20 +53,6 @@ struct TranscriptView: View {
                                        && controller.messages.last?.id == message.id && message.role == .assistant)
                             .id(message.id)
                     }
-                    if let error = controller.errorText, !error.isEmpty {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatTheme.danger)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(error).font(.subheadline).textSelection(.enabled)
-                                if controller.canRetry {
-                                    Button("重试上次回复") { controller.retry() }.font(.subheadline.weight(.semibold))
-                                }
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(12).background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 12))
-                        .accessibilityElement(children: .combine)
-                    }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
                 .frame(maxWidth: 780).frame(maxWidth: .infinity)
