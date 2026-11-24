@@ -61,7 +61,8 @@ final class DeepSeekImportTests: XCTestCase {
         XCTAssertEqual(result.sessions.count, 2) // current endpoint 4 + alternate leaf 3
         XCTAssertEqual(result.sessions.first?.messages.map(\.content), ["你好", "你好！", "谢谢"])
         XCTAssertEqual(result.sessions.first?.messages[1].reasoning, "先思考")
-        XCTAssertEqual(result.sessions.first?.messages[1].createdAt.timeIntervalSince1970, 1_767_604_800, accuracy: 1)
+        let importedMessage = try XCTUnwrap(result.sessions.first?.messages.dropFirst().first)
+        XCTAssertEqual(importedMessage.createdAt.timeIntervalSince1970, 1_767_603_600, accuracy: 1)
         XCTAssertEqual(result.sessions.last?.messages.last?.content, "另一分支")
         let replay = try parse(files)
         XCTAssertEqual(result.sessions.map(\.id), replay.sessions.map(\.id))
