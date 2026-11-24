@@ -5,12 +5,16 @@ import UIKit
 @MainActor
 struct TranscriptView: View {
     @Bindable var controller: ChatController
-    @Bindable var reader: SpeechReader
     let onReadAloud: (String) -> Void
     var onBackgroundTap: () -> Void = {}
+    var jump: HistoryJump? = nil
     @State private var nearBottom = true
     @State private var visibleLimit = 80
     private let bottomID = "transcript-bottom"
+    private struct ScrollTarget: Equatable {
+        let sessionID: UUID?
+        let jump: HistoryJump?
+    }
     private var visibleMessages: [ChatMessage] { Array(controller.messages.suffix(visibleLimit)) }
 
     private var revision: String {
@@ -54,7 +58,7 @@ struct TranscriptView: View {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(ChatTheme.danger)
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(error).font(.subheadline).textSelection(.enabled)
-                                if controller.backendReady && !controller.isGenerating {
+                                if controller.canRetry {
                                     Button("重试上次回复") { controller.retry() }.font(.subheadline.weight(.semibold))
                                 }
                             }
@@ -90,12 +94,21 @@ struct TranscriptView: View {
             .onChange(of: revision) { _, _ in
                 if nearBottom { reader.scrollTo(bottomID, anchor: .bottom) }
             }
-            .onChange(of: controller.currentID) { _, _ in
-                visibleLimit = 80
-                nearBottom = true
-                DispatchQueue.main.async { reader.scrollTo(bottomID, anchor: .bottom) }
+            .task(id: ScrollTarget(sessionID: controller.currentID, jump: jump)) {
+                if let jump, jump.sessionID == controller.currentID,
+                   let index = controller.messages.firstIndex(where: { $0.id == jump.messageID }) {
+                    visibleLimit = max(80, controller.messages.count - index)
+                    nearBottom = false
+                    // Give the lazy list one layout pass after extending its visible suffix.
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                    reader.scrollTo(jump.messageID, anchor: .center)
+                } else {
+                    visibleLimit = 80
+                    nearBottom = true
+                    await Task.yield()
+                    if !Task.isCancelled { reader.scrollTo(bottomID, anchor: .bottom) }
+                }
             }
-            .task { reader.scrollTo(bottomID, anchor: .bottom) }
         }
         }
     }
@@ -109,25 +122,63 @@ private struct MessageRow: View {
     let canRegenerate: Bool
     @State private var showDeleteConfirm = false
     @State private var reasoningOpen = false
+    @AppStorage("standalone.reasoning.autoFold") private var autoFoldReasoning = true
     @AppStorage("standalone.chat.feedback.v1") private var feedbackBlob = "{}"
     private var isUser: Bool { message.role == .user }
+    private var isThinking: Bool { message.status == .streaming && message.content.isEmpty }
     private var vote: Int { (decodeFeedback()[message.id.uuidString] ?? 0) }
+
+    private var thinkingTitle: Text {
+        if isThinking { return Text("思考中…") }
+        if message.status == .failed && message.content.isEmpty { return Text("思考已中断") }
+        if let duration = message.reasoningDuration, duration.isFinite, duration > 0 {
+            return Text("已思考（用时 \(Int(min(86_400, max(1, duration.rounded())))) 秒）")
+        }
+        return Text("已思考")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 48) }
             VStack(alignment: isUser ? .trailing : .leading, spacing: 12) {
-                if let reasoning = message.reasoning, !reasoning.isEmpty {
-                    DisclosureGroup(isExpanded: $reasoningOpen) {
-                        RichTextView(source: reasoning).font(.subheadline)
-                            .padding(.top, 8).foregroundStyle(ChatTheme.muted)
-                    } label: {
-                        Text(message.status == .streaming ? "思考中" : "已思考")
+                if !isUser, let reasoning = message.reasoning, !reasoning.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Button { reasoningOpen.toggle() } label: {
+                            HStack(spacing: 8) {
+                                thinkingTitle
+                                Image(systemName: reasoningOpen ? "chevron.down" : "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                            }
                             .foregroundStyle(ChatTheme.muted)
+                            .font(.subheadline)
+                            .frame(minHeight: 37, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("message.reasoning")
+                        .accessibilityValue(reasoningOpen ? "已展开" : "已折叠")
+                        if reasoningOpen {
+                            HStack(alignment: .top, spacing: 11) {
+                                RichTextView(source: reasoning)
+                                    .font(.subheadline)
+                                    .foregroundStyle(ChatTheme.muted)
+                                    .padding(.leading, 14)
+                                    .overlay(alignment: .leading) {
+                                        ChatTheme.line.frame(width: 1)
+                                    }
+                            }
+                            .accessibilityIdentifier("message.reasoning.content")
+                            .padding(.bottom, 7)
+                        }
                     }
-                    .font(.subheadline)
-                    .tint(ChatTheme.muted)
-                    .padding(.bottom, 4)
+                    .onAppear { reasoningOpen = isThinking || !autoFoldReasoning }
+                    .onChange(of: isThinking) { wasThinking, active in
+                        if active { reasoningOpen = true }
+                        else if wasThinking && autoFoldReasoning { reasoningOpen = false }
+                    }
+                    .onChange(of: autoFoldReasoning) { _, fold in
+                        if !isThinking { reasoningOpen = !fold }
+                    }
                 }
                 if !message.content.isEmpty {
                     Group {
@@ -135,9 +186,13 @@ private struct MessageRow: View {
                             Text(message.content)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(13)
-                                .background(ChatTheme.raised, in: RoundedRectangle(cornerRadius: 16))
+                                .padding(.horizontal, 15)
+                                .padding(.vertical, 11)
+                                .background(ChatTheme.raised, in: UnevenRoundedRectangle(
+                                    topLeadingRadius: 23, bottomLeadingRadius: 23,
+                                    bottomTrailingRadius: 5, topTrailingRadius: 23))
                                 .frame(maxWidth: 300, alignment: .trailing)
+                                .accessibilityIdentifier("message.user.bubble")
                         } else {
                             RichTextView(source: message.content)
                                 .frame(maxWidth: .infinity, alignment: .leading)

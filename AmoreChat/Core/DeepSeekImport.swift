@@ -39,28 +39,26 @@ enum DeepSeekImport {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let zip = try DeepSeekImportZIP(url: url)
-        guard zip.entries.first?.path == "manifest.json" else {
-            throw DeepSeekImportError.unsupportedFormat("首个文件不是 manifest.json")
+        guard let manifestEntry = zip.entries.first(where: { $0.path == "manifest.json" }),
+              let indexEntry = zip.entries.first(where: { $0.path == "chat_session_index.json" }) else {
+            throw DeepSeekImportError.unsupportedFormat("缺少清单或会话索引；不支持其他导出版式")
         }
-        let manifest = try dictionary(zip.read(zip.entries[0]), "manifest.json")
+        let manifest = try dictionary(zip.read(manifestEntry), manifestEntry.path)
         guard let version = integer(manifest["export_format_version"]), version == 3 else {
             throw DeepSeekImportError.unsupportedFormat("仅支持 export_format_version = 3")
         }
-        var index: [[String: Any]]?, rawSessions = [String: [String: Any]]()
-        var expected = Set<String>(), sessionCount = 0
-        var namespace = ""  // Optional user_id prevents collisions between accounts; never persisted.
-        var phase = 0  // 0: before sessions; 1: sessions; 2: index + images
-        for entry in zip.entries.dropFirst() {
-            let data = try zip.read(entry) // also validates unreferenced image bytes / CRC
-            if entry.path == "user.json" && phase == 0 {
-                let user = try dictionary(data, entry.path)
-                if let id = user["user_id"] as? String { namespace = id }
-            } else if entry.path == "chat_session_index.json" && index == nil {
-                guard let values = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-                    throw DeepSeekImportError.invalidData("会话索引格式错误")
-                }
-                index = values; phase = 2
-            } else if entry.path.hasPrefix("chat_sessions/"), entry.path.hasSuffix(".json"), phase < 2 {
+        guard let index = try? JSONSerialization.jsonObject(with: zip.read(indexEntry)) as? [[String: Any]] else {
+            throw DeepSeekImportError.invalidData("会话索引格式错误")
+        }
+        var rawSessions = [String: [String: Any]]()
+        var expected = Set<String>()
+        let namespace = "" // Never read account fields into the session store.
+        for entry in zip.entries where entry.path != manifestEntry.path && entry.path != indexEntry.path {
+            let data = try zip.read(entry)
+            if entry.path == "user.json" {
+                _ = try dictionary(data, entry.path) // validate but never retain profile data
+            } else if entry.path.hasPrefix("chat_sessions/"), entry.path.hasSuffix(".json"),
+                      !entry.path.dropFirst("chat_sessions/".count).contains("/") {
                 let path = String(entry.path.dropFirst("chat_sessions/".count).dropLast(5))
                 guard !path.isEmpty, !path.contains("/"), !path.contains("\\"), path != ".", path != ".." else {
                     throw DeepSeekImportError.unsafeArchive("非法会话路径")
@@ -71,39 +69,44 @@ enum DeepSeekImport {
                 }
                 rawSessions[id] = value
                 expected.insert(id)
-                phase = 1; sessionCount += 1
             } else if entry.path.hasPrefix("chat_sessions/"), entry.path.contains("_files/") {
-                // We deliberately DO NOT import FILE fragments: reject rather than silently lose images.
-                // Orphaned image data is rejected below; valid referenced images are rejected in parseSession.
-                guard phase > 0 else { throw DeepSeekImportError.invalidData("图片位于会话之前") }
+                throw DeepSeekImportError.unsupportedFormat("含附件原件；当前只支持纯文字与思考")
             } else {
-                throw DeepSeekImportError.unsupportedFormat("未知条目或顺序：\(entry.path)")
+                throw DeepSeekImportError.unsupportedFormat("含未知格式条目")
             }
         }
-        guard let index, index.count == sessionCount else {
+        let sessionCount = rawSessions.count
+        guard index.count == sessionCount else {
             throw DeepSeekImportError.invalidData("索引和会话文件数量不一致")
         }
         var sessions = [ChatSession](), ids = Set<String>(), messages = 0
+        var textBytes = 0
         for item in index {
+            try Task.checkCancellation()
             guard let id = item["id"] as? String, ids.insert(id).inserted,
                   let source = rawSessions[id],
-                  let count = integer(item["message_count"]), count >= 0,
-                  let rawMessages = source["messages"] as? [Any], rawMessages.count == count,
-                  let indexTitle = item["title"], let sourceTitle = source["title"],
-                  (indexTitle is NSNull && sourceTitle is NSNull ||
-                   (indexTitle as? String) != nil && (indexTitle as? String) == (sourceTitle as? String)),
-                  let inserted = item["inserted_at"] as? String,
-                  let updated = item["updated_at"] as? String,
-                  inserted == source["inserted_at"] as? String,
-                  updated == source["updated_at"] as? String else {
+                  let rawMessages = source["messages"] as? [Any],
+                  item["message_count"].map({ integer($0) == rawMessages.count }) ?? true,
+                  let inserted = date(item["inserted_at"]),
+                  let updated = date(item["updated_at"]),
+                  inserted == date(source["inserted_at"]),
+                  source["updated_at"].map({ date($0) == updated }) ?? true else {
                 throw DeepSeekImportError.invalidData("索引与会话内容不一致")
             }
-            let branches = try parseSession(source, namespace: namespace)
+            let branches = try parseSession(source, namespace: namespace, updated: updated,
+                                            pinned: item["pinned"] as? Bool ?? source["pinned"] as? Bool ?? false)
             guard sessions.count + branches.count <= 4_096 else {
                 throw DeepSeekImportError.unsafeArchive("分支过多（上限 4096）")
             }
-            messages += branches.reduce(0) { $0 + $1.messages.count }
-            guard messages <= 100_000 else { throw DeepSeekImportError.unsafeArchive("消息过多") }
+            for branch in branches {
+                messages += branch.messages.count
+                for message in branch.messages {
+                    textBytes += message.content.utf8.count + (message.reasoning?.utf8.count ?? 0)
+                }
+                guard messages <= 50_000, textBytes <= 24 * 1_024 * 1_024 else {
+                    throw DeepSeekImportError.unsafeArchive("分支展开后消息过多或文字超过 24 MiB")
+                }
+            }
             sessions.append(contentsOf: branches)
         }
         guard ids == expected else { throw DeepSeekImportError.invalidData("索引遗漏会话") }
@@ -117,12 +120,12 @@ enum DeepSeekImport {
         let message: ChatMessage
     }
 
-    private static func parseSession(_ source: [String: Any], namespace: String) throws -> [ChatSession] {
+    private static func parseSession(_ source: [String: Any], namespace: String, updated: Date,
+                                     pinned: Bool) throws -> [ChatSession] {
         guard let id = source["id"] as? String, !id.isEmpty,
               let rawTitle = source["title"], (rawTitle is NSNull || rawTitle is String),
               let raw = source["messages"] as? [[String: Any]], raw.count <= 5_000,
-              let created = date(source["inserted_at"]), let updated = date(source["updated_at"]),
-              let current = integer(source["current_message_id"]), current >= 0 else {
+              let created = date(source["inserted_at"]) else {
             throw DeepSeekImportError.invalidData("会话元数据无效")
         }
         let title = (rawTitle as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "新对话"
@@ -147,6 +150,7 @@ enum DeepSeekImport {
                 children[parent, default: []].append(nodeID)
             } else if role != .user { throw DeepSeekImportError.invalidData("根消息不是用户提问") }
             var content = "", reasoning = ""
+            var elapsed: TimeInterval?
             for fragment in fragments {
                 guard let kind = fragment["type"] as? String,
                       ["REQUEST", "RESPONSE", "THINK"].contains(kind),
@@ -156,25 +160,35 @@ enum DeepSeekImport {
                 guard kind == "THINK" ? role == .assistant : (kind == "REQUEST" ? role == .user : role == .assistant) else {
                     throw DeepSeekImportError.invalidData("会话 \(id) 消息与片段角色不一致")
                 }
-                if kind == "THINK" { reasoning += text } else { content += text }
+                if kind == "THINK" {
+                    reasoning += text
+                    if let seconds = fragment["elapsed_secs"] as? NSNumber,
+                       CFGetTypeID(seconds) != CFBooleanGetTypeID(), seconds.doubleValue.isFinite,
+                       seconds.doubleValue >= 0, seconds.doubleValue <= 86_400 {
+                        elapsed = min(86_400, (elapsed ?? 0) + seconds.doubleValue)
+                    }
+                } else { content += text }
             }
-            let stableMessageID = stableUUID("msg|\(namespace)|\(id)|\(nodeID)")
-            nodes[nodeID] = Node(id: nodeID, parent: parent,
-                                 message: ChatMessage(id: stableMessageID, role: role, content: content,
-                                                      reasoning: reasoning.isEmpty ? nil : reasoning,
-                                                      createdAt: when, status: .complete))
-        }
-        guard raw.isEmpty ? current == 0 : nodes[current] != nil else {
-            throw DeepSeekImportError.invalidData("会话 \(id) 当前分支节点不存在")
+            var parsed = ChatMessage(id: stableUUID("msg|\(namespace)|\(id)|\(nodeID)"),
+                                     role: role, content: content,
+                                     reasoning: reasoning.isEmpty ? nil : reasoning,
+                                     createdAt: when, status: .complete)
+            parsed.reasoningDuration = elapsed
+            nodes[nodeID] = Node(id: nodeID, parent: parent, message: parsed)
         }
         if raw.isEmpty {
             return [ChatSession(id: stableUUID("chat|\(namespace)|\(id)|empty"), title: title,
-                                createdAt: created, updatedAt: updated)]
+                                createdAt: created, updatedAt: updated, isPinned: pinned)]
+        }
+        let storedCurrent = integer(source["current_message_id"])
+        guard let current = storedCurrent.flatMap({ nodes[$0] == nil ? nil : $0 }) ?? nodes.keys.max() else {
+            throw DeepSeekImportError.invalidData("缺少可读消息节点")
         }
         // Preserve ALL alternative branches as separately labeled linear chats, plus the current
         // path when it ends before a leaf. ChatSession cannot represent a native message tree.
-        var endpoints = nodes.keys.filter { children[$0, default: []].isEmpty }.sorted()
-        if !endpoints.contains(current) { endpoints.insert(current, at: 0) }
+        let endpoints = [current] + nodes.keys.filter {
+            $0 != current && children[$0, default: []].isEmpty
+        }.sorted()
         guard endpoints.count <= 256 else { throw DeepSeekImportError.unsafeArchive("单会话分支过多") }
         var result = [ChatSession]()
         for endpoint in endpoints {
@@ -189,7 +203,7 @@ enum DeepSeekImport {
             let label = endpoints.count > 1 && endpoint != current ? "（分支 \(endpoint)）" : ""
             result.append(ChatSession(id: stableUUID("chat|\(namespace)|\(id)|\(endpoint)"),
                                       title: String((title + label).prefix(100)), createdAt: created,
-                                      updatedAt: updated, messages: path))
+                                      updatedAt: updated, isPinned: pinned && endpoint == current, messages: path))
         }
         return result
     }

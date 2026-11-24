@@ -12,6 +12,7 @@ final class ReferenceScreensUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
                                 "-standalone.appearance", "dark", "-standalone.appLanguage", "zh-Hans"]
+        app.launchArguments.append("--isolated-ui-test")
         app.launch()
         XCTAssertTrue(app.staticTexts["home.welcome"].waitForExistence(timeout: 20))
         XCTAssertTrue(app.buttons["composer.speech"].waitForExistence(timeout: 8))
@@ -29,7 +30,7 @@ final class ReferenceScreensUITests: XCTestCase {
         XCTAssertFalse(app.buttons["composer.attach.camera"].exists)
 
         app.buttons["root.sidebar.open"].tap()
-        XCTAssertTrue(app.textFields["sidebar.search"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["sidebar.search"].waitForExistence(timeout: 8))
         capture(app, name: "03-history-drawer")
         app.buttons["sidebar.settings"].tap()
         XCTAssertTrue(app.buttons["settings.close"].waitForExistence(timeout: 8))

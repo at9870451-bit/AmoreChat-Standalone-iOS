@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 ///    controller.sessions = snapshot.sessions.sorted { $0.updatedAt > $1.updatedAt }
 /// Never mutate controller before that save succeeds. SettingsView integration is parent-owned.
 struct DeepSeekImportView: View {
-    let onCommit: @MainActor (DeepSeekImportResult) async throws -> Void
+    let onCommit: @MainActor (DeepSeekImportResult) async throws -> (added: Int, duplicates: Int)
     @State private var showingPicker = false
     @State private var parsed: DeepSeekImportResult?
     @State private var isBusy = false
@@ -25,8 +25,11 @@ struct DeepSeekImportView: View {
                     isBusy = true
                     Task { @MainActor in
                         defer { isBusy = false }
-                        do { try await onCommit(parsed); notice = "已保存导入的会话。"; self.parsed = nil }
-                        catch { notice = "保存失败，未提交导入：\(error.localizedDescription)" }
+                        do {
+                            let result = try await onCommit(parsed)
+                            notice = "已导入 \(result.added) 个会话，跳过 \(result.duplicates) 个重复会话。"
+                            self.parsed = nil
+                        } catch { notice = "保存失败，未提交导入：\(error.localizedDescription)" }
                     }
                 }.disabled(isBusy)
             }

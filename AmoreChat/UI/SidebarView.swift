@@ -6,19 +6,15 @@ import SwiftUI
     let onClose: () -> Void
     let onNewChat: () -> Void
     let onSettings: () -> Void
+    let onSearch: () -> Void
     @AppStorage("standalone.profile.nickname") private var nickname = "访客"
-    @State private var search = ""
     @State private var managing = false
     @State private var renameID: UUID?
     @State private var renameText = ""
     @State private var deletionID: UUID?
 
     private var matches: [ChatSession] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        return controller.sessions.filter { session in
-            query.isEmpty || session.title.localizedCaseInsensitiveContains(query)
-                || session.messages.contains { $0.content.localizedCaseInsensitiveContains(query) }
-        }.sorted {
+        controller.sessions.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned }
             return $0.updatedAt > $1.updatedAt
         }
@@ -36,20 +32,20 @@ import SwiftUI
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 18))
-                        .foregroundStyle(ChatTheme.muted)
-                    TextField("搜索对话内容…", text: $search)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .accessibilityIdentifier("sidebar.search")
-                    if !search.isEmpty {
-                        Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
-                            .accessibilityLabel("清除搜索")
+                Button(action: onSearch) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 18))
+                        Text("搜索对话内容…")
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
                     }
+                    .foregroundStyle(ChatTheme.muted)
+                    .padding(.horizontal, 12).frame(height: 48)
+                    .background(ChatTheme.surface, in: Capsule())
+                    .contentShape(Capsule())
                 }
-                .padding(.horizontal, 12).frame(height: 48)
-                .background(ChatTheme.surface, in: Capsule())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("sidebar.search")
                 Button(action: onClose) {
                     Image(systemName: "line.3.horizontal.decrease")
                         .frame(width: 40, height: 44).contentShape(Rectangle())
@@ -80,7 +76,7 @@ import SwiftUI
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     if matches.isEmpty {
-                        Text(search.isEmpty ? "暂无历史对话" : "没有匹配的对话")
+                        Text("暂无历史对话")
                             .font(.subheadline).foregroundStyle(ChatTheme.muted)
                             .padding(.top, 32)
                     }
@@ -103,8 +99,6 @@ import SwiftUI
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 30)).foregroundStyle(ChatTheme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(nickname.isEmpty ? "访客" : nickname).lineLimit(1)
                     Text("仅保存在本机").font(.caption).foregroundStyle(ChatTheme.muted)

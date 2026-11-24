@@ -23,15 +23,37 @@ jobs:
         run: xcodegen generate --spec project.yml
       - name: Build for iOS Simulator
         run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
-      - name: Run unit and UI tests
-        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'platform=iOS Simulator,name=iPhone 17' -parallel-testing-enabled NO -resultBundlePath "$RUNNER_TEMP/AmoreChatScreens.xcresult" CODE_SIGNING_ALLOWED=NO test
+      - name: Boot iPhone simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(d["udid"] for key in sorted(devices, reverse=True) for d in devices[key] if d["name"] == "iPhone 17"))')
+          xcrun simctl bootstatus "$DEVICE" -b
+          printf 'SIMULATOR_ID=%s\n' "$DEVICE" >> "$GITHUB_ENV"
+      - name: Build tests once
+        run: xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/ChatTests" CODE_SIGNING_ALLOWED=NO build-for-testing
+      - name: Run tests and verify both system appearances
+        shell: bash
+        run: |
+          set -euo pipefail
+          common=( -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -parallel-testing-enabled NO -derivedDataPath "$RUNNER_TEMP/ChatTests" CODE_SIGNING_ALLOWED=NO )
+          failed=0
+          xcrun simctl ui "$SIMULATOR_ID" appearance light
+          xcodebuild "${common[@]}" -skip-testing:AmoreChatStandaloneUITests/AppearanceUITests -resultBundlePath "$RUNNER_TEMP/AmoreChatScreens.xcresult" test-without-building || failed=1
+          for style in dark light; do
+            xcrun simctl ui "$SIMULATOR_ID" appearance "$style"
+            xcrun simctl ui "$SIMULATOR_ID" appearance | tee "$RUNNER_TEMP/system-style-$style.txt"
+            if [[ "$style" == dark ]]; then testName=testAgainstDarkSystem; else testName=testAgainstLightSystem; fi
+            xcodebuild "${common[@]}" "-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/$testName" -resultBundlePath "$RUNNER_TEMP/Appearance-$style.xcresult" test-without-building || failed=1
+          done
+          exit "$failed"
       - name: Export UI screenshots
         if: always()
         run: |
           mkdir -p screenshots
-          if [ -d "$RUNNER_TEMP/AmoreChatScreens.xcresult" ]; then
-            xcrun xcresulttool export attachments --path "$RUNNER_TEMP/AmoreChatScreens.xcresult" --output-path screenshots || true
-          fi
+          for result in AmoreChatScreens Appearance-dark Appearance-light; do
+            if [ -d "$RUNNER_TEMP/$result.xcresult" ]; then
+              xcrun xcresulttool export attachments --path "$RUNNER_TEMP/$result.xcresult" --output-path "screenshots/$result" || true
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

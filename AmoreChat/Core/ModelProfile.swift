@@ -38,6 +38,28 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var appendV1: Bool
     var format: ModelAPIFormat
 
+    private var apiHost: String? {
+        guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1),
+              url.port == nil || url.port == 443 else { return nil }
+        return url.host?.lowercased()
+    }
+
+    var allowsThinking: Bool {
+        switch provider {
+        case .deepSeek: apiHost == "api.deepseek.com"
+        case .openAI: apiHost == "api.openai.com"
+        case .openRouter: apiHost == "openrouter.ai"
+        case .custom: false
+        }
+    }
+
+    var allowsWebSearch: Bool {
+        guard provider == .openRouter,
+              let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1),
+              apiHost == "openrouter.ai" else { return false }
+        return url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "api/v1"
+    }
+
     init(id: UUID = UUID(), label: String = "", provider: ModelProvider = .deepSeek,
          baseURL: String = "", modelID: String = "", appendV1: Bool = false,
          format: ModelAPIFormat = .chatCompletions) {

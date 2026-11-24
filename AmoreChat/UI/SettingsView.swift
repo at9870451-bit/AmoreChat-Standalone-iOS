@@ -1,9 +1,7 @@
-import AVFoundation
 import SwiftUI
-import UIKit
 
 private enum SettingsPage: String, Identifiable {
-    case account, models, data, language, appearance, font, personalization, voice, updates, agreement, help
+    case account, models, data, language, font, personalization, updates, agreement, help
     var id: String { rawValue }
 }
 
@@ -11,7 +9,8 @@ struct SettingsView: View {
     @Bindable var controller: ChatController
     @Environment(\.dismiss) private var dismiss
     @State private var page: SettingsPage?
-    @State private var showSignOutNotice = false
+    @State private var showVoice = false
+    @AppStorage("standalone.reasoning.autoFold") private var autoFoldReasoning = true
     @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
@@ -34,14 +33,18 @@ struct SettingsView: View {
                 section("应用") {
                     row("语言", symbol: "globe", value: languageName, page: .language)
                     separator
-                    row("外观", symbol: "moon.stars", value: appearanceName, page: .appearance)
+                    appearanceRow
                     separator
                     row("字体大小", symbol: "textformat", page: .font)
                     separator
                     row("个性化", symbol: "wand.and.stars", page: .personalization)
                 }
                 section("语音") {
-                    row("朗读音色", symbol: "speaker.wave.2", page: .voice)
+                    Button { showVoice = true } label: {
+                        rowLabel("朗读音色", symbol: "speaker.wave.2")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.row.voice")
                 }
                 section("关于") {
                     row("检查更新", symbol: "info.circle", value: version, page: .updates)
@@ -49,23 +52,11 @@ struct SettingsView: View {
                     row("服务协议", symbol: "doc.text", page: .agreement)
                 }
                 card { row("帮助与反馈", symbol: "questionmark.circle", page: .help) }
-                card {
-                    Button { showSignOutNotice = true } label: {
-                        Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                            .font(.body)
-                            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
-                            .padding(.horizontal, 16)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
         }
         .background(ChatTheme.settingsBackground.ignoresSafeArea())
-        // A presented sheet is a separate presentation: give it the same explicit
-        // preference instead of relying on the presenting root's window style.
-        .preferredColorScheme(appearanceMode.colorScheme)
         .toolbar(.hidden, for: .navigationBar)
         .sheet(item: $page) { page in
             NavigationStack {
@@ -75,17 +66,12 @@ struct SettingsView: View {
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("完成") { self.page = nil }
-                                .accessibilityIdentifier(page == .appearance ? "settings.appearance.done" : "settings.page.done")
+                                .accessibilityIdentifier("settings.page.done")
                         }
                     }
             }
-            .preferredColorScheme(appearanceMode.colorScheme)
         }
-        .alert("尚未登录", isPresented: $showSignOutNotice) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text("当前只有本机访客身份，尚未接入账号后端，因此没有可退出的服务器登录。")
-        }
+        .sheet(isPresented: $showVoice) { ReferenceVoiceSheet() }
     }
 
     private var header: some View {
@@ -125,21 +111,45 @@ struct SettingsView: View {
 
     private func row(_ title: LocalizedStringKey, symbol: String, value: String? = nil,
                      page target: SettingsPage) -> some View {
-        Button { page = target } label: {
-            HStack(spacing: 16) {
-                Image(systemName: symbol).font(.system(size: 20)).frame(width: 22)
-                Text(title).font(.body)
-                Spacer(minLength: 4)
-                if let value { Text(value).foregroundStyle(ChatTheme.muted).lineLimit(1) }
-                Image(systemName: "chevron.right").font(.subheadline.weight(.semibold))
-                    .foregroundStyle(ChatTheme.muted)
+        Button { page = target } label: { rowLabel(title, symbol: symbol, value: value) }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("settings.row.\(target.rawValue)")
+    }
+
+    private func rowLabel(_ title: LocalizedStringKey, symbol: String,
+                          value: String? = nil, disclosure: String = "chevron.right") -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: symbol).font(.system(size: 20)).frame(width: 22)
+            Text(title).font(.body)
+            Spacer(minLength: 4)
+            if let value { Text(value).foregroundStyle(ChatTheme.muted).lineLimit(1) }
+            Image(systemName: disclosure).font(.subheadline.weight(.semibold))
+                .foregroundStyle(ChatTheme.muted).accessibilityHidden(true)
+        }
+        .foregroundStyle(ChatTheme.text)
+        .padding(.horizontal, 16)
+        .frame(minHeight: 54)
+        .contentShape(Rectangle())
+    }
+
+    private var appearanceRow: some View {
+        Menu {
+            ForEach([AppearanceMode.system, .dark, .light]) { mode in
+                Button {
+                    appearance = mode.rawValue
+                } label: {
+                    if appearanceMode == mode { Label(mode.displayName, systemImage: "checkmark") }
+                    else { Text(mode.displayName) }
+                }
+                .accessibilityIdentifier("settings.appearance.\(mode.rawValue)")
             }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 58)
-            .contentShape(Rectangle())
+        } label: {
+            rowLabel("外观", symbol: "moon.stars", value: appearanceMode.displayName, disclosure: "chevron.up.chevron.down")
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("settings.row.\(target.rawValue)")
+        .accessibilityLabel("外观")
+        .accessibilityValue(appearanceMode.displayName)
+        .accessibilityIdentifier("settings.row.appearance")
     }
 
     private var version: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.1.0" }
@@ -147,11 +157,10 @@ struct SettingsView: View {
         switch language { case "zh-Hans": return "简体中文"; case "zh-Hant": return "繁體中文"
         case "en": return "English"; default: return "系统" }
     }
-    private var appearanceName: String { appearanceMode.displayName }
     private func title(for page: SettingsPage) -> String {
         switch page { case .account: "账户管理"; case .models: "模型与服务商"; case .data: "数据管理"; case .language: "语言"
-        case .appearance: "外观"; case .font: "字体大小"; case .personalization: "个性化"
-        case .voice: "朗读音色"; case .updates: "检查更新"; case .agreement: "服务协议"
+        case .font: "字体大小"; case .personalization: "个性化"
+        case .updates: "检查更新"; case .agreement: "服务协议"
         case .help: "帮助与反馈" }
     }
 
@@ -170,28 +179,6 @@ struct SettingsView: View {
                 }.pickerStyle(.inline)
                 Text("切换后立即应用；翻译尚在完善中。").font(.footnote).foregroundStyle(.secondary)
             }
-        case .appearance:
-            List {
-                ForEach(AppearanceMode.allCases) { mode in
-                    Button {
-                        appearance = mode.rawValue
-                    } label: {
-                        HStack {
-                            Text(mode == .system ? "跟随系统" : mode.displayName)
-                            Spacer()
-                            if appearanceMode == mode {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(ChatTheme.accent)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("settings.appearance.\(mode.rawValue)")
-                    .accessibilityAddTraits(appearanceMode == mode ? [.isSelected] : [])
-                }
-            }
         case .font:
             Form {
                 Slider(value: $fontScale, in: 0.85...1.5, step: 0.05)
@@ -199,18 +186,25 @@ struct SettingsView: View {
                 Button("恢复系统大小") { fontScale = 1.0 }
             }
         case .personalization:
-            Form { TextField("本机昵称", text: $nickname).textInputAutocapitalization(.words)
-                Text("仅保存到本机。尚未接入账号或云同步。")
-                    .font(.footnote).foregroundStyle(.secondary) }
-        case .voice: VoiceSettingsPage()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("思考内容自动折叠", isOn: $autoFoldReasoning)
+                        .tint(.green)
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 53)
+                        .background(ChatTheme.surface, in: Capsule())
+                        .accessibilityIdentifier("settings.reasoning.autoFold")
+                    Text("开启后，思考结束会自动折叠思考内容。")
+                        .font(.footnote).foregroundStyle(ChatTheme.muted)
+                        .padding(.horizontal, 16)
+                }
+                .padding(16)
+            }
+            .background(ChatTheme.settingsBackground.ignoresSafeArea())
         case .updates: UpdateCheckPage(version: version)
-        case .agreement:
-            ScrollView { Text("本应用可选用你自行添加的 AI 服务商：发送消息时，请求会直连所配置的 HTTPS API，模型服务商可能收费；仅 OpenRouter 官方地址的联网搜索选项会要求单独确认额外费用。会话和附件保存在本机，API Key 保存在 iOS 钥匙串，不提供云账号或同步。使用外部模型时还须遵守相应服务商的协议和隐私政策。本页不是第三方官方服务条款。")
-                .padding().frame(maxWidth: .infinity, alignment: .leading) }
+        case .agreement: ServiceDisclosuresView()
         case .help:
             List {
-                ShareLink(item: "AmoreChat Standalone \(version) · iOS \(UIDevice.current.systemVersion) · 模型配置数 \(ModelCatalog.shared.profiles.count)") {
-                    Label("分享诊断概要", systemImage: "square.and.arrow.up") }
                 Link(destination: URL(string: "https://github.com/at9870451-bit/AmoreChat-Standalone-iOS/issues/new")!) {
                     Label("前往 GitHub 提交反馈", systemImage: "questionmark.bubble") }
                 Text("不要在反馈中提交密钥、密码或私人聊天内容。")

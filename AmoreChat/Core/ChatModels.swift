@@ -20,6 +20,7 @@ struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
     let role: ChatRole
     var content: String
     var reasoning: String?
+    var reasoningDuration: TimeInterval? = nil
     var attachments: [ChatAttachment]
     let createdAt: Date
     var status: MessageStatus

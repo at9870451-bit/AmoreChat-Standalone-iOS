@@ -3,6 +3,7 @@ import XCTest
 final class ChatSmokeUITests: XCTestCase {
     func testTapChatCanvasDismissesKeyboardAndSavesDraft() {
         let app = XCUIApplication()
+        app.launchArguments.append("--isolated-ui-test")
         app.launch()
         let field = app.descendants(matching: .any)
             .matching(identifier: "composer.message").firstMatch
@@ -19,6 +20,7 @@ final class ChatSmokeUITests: XCTestCase {
 
     func testLaunchSidebarAndOfflineGuard() {
         let app = XCUIApplication()
+        app.launchArguments.append("--isolated-ui-test")
         app.launch()
         XCTAssertTrue(app.buttons["root.sidebar.open"].waitForExistence(timeout: 20))
         app.buttons["root.chat.new"].tap()
@@ -31,7 +33,11 @@ final class ChatSmokeUITests: XCTestCase {
         XCTAssertTrue(send.waitForExistence(timeout: 12))
         XCTAssertFalse(send.isEnabled, "Unconfigured backend must never fake a send")
         app.buttons["root.sidebar.open"].tap()
-        XCTAssertTrue(app.textFields["sidebar.search"].waitForExistence(timeout: 5))
+        let search = app.buttons["sidebar.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        XCTAssertTrue(app.textFields["history.search.query"].waitForExistence(timeout: 8))
+        app.buttons["history.search.back"].tap()
         app.buttons["Close sidebar"].tap()
         XCTAssertTrue(app.buttons["root.chat.new"].waitForExistence(timeout: 5))
         app.buttons["root.chat.new"].tap()

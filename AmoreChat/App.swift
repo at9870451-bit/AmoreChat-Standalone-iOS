@@ -2,7 +2,7 @@ import SwiftUI
 
 @main
 struct AmoreChatStandaloneApp: App {
-    @State private var controller = ChatController()
+    @State private var controller = AppControllerFactory.make()
     @State private var speech = SpeechInput()
     @State private var reader = SpeechReader()
 
@@ -20,17 +20,19 @@ struct RootView: View {
     @State private var sidebarOpen = false
     @State private var settingsOpen = false
     @State private var modelSettingsOpen = false
+    @State private var historySearchOpen = false
+    @State private var historyJump: HistoryJump?
     @State private var keyboardDismissSignal = 0
+    @State private var speechStartTask: Task<Void, Never>?
     @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
     @AppStorage("standalone.reader.muted") private var readerMuted = true
     @AppStorage("standalone.speech.voiceID") private var readerVoiceID = ""
     @Environment(\.dynamicTypeSize) private var systemTextSize
+    @Environment(\.scenePhase) private var scenePhase
 
-    private var displayScheme: ColorScheme? {
-        AppearanceMode(storedValue: appearance).colorScheme
-    }
+    private var appearanceMode: AppearanceMode { AppearanceMode(storedValue: appearance) }
     private var displayTextSize: DynamicTypeSize {
         if fontScale < 0.95 { return .small }
         if fontScale > 1.35 { return .xxxLarge }
@@ -48,7 +50,13 @@ struct RootView: View {
                     SidebarView(controller: controller,
                                 onClose: { withAnimation(.easeInOut(duration: 0.27)) { sidebarOpen = false } },
                                 onNewChat: { controller.newChat() },
-                                onSettings: { sidebarOpen = false; settingsOpen = true })
+                                onSettings: { sidebarOpen = false; settingsOpen = true },
+                                onSearch: {
+                                    keyboardDismissSignal &+= 1
+                                    cancelSpeech()
+                                    reader.stop()
+                                    historySearchOpen = true
+                                })
                         .frame(width: sidebarWidth)
                         .frame(maxHeight: .infinity)
                         .transition(.move(edge: .leading))
@@ -60,19 +68,22 @@ struct RootView: View {
                         ProgressView("正在读取会话…")
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        TranscriptView(controller: controller, reader: reader,
+                        TranscriptView(controller: controller,
                                        onReadAloud: { text in
-                            if !readerMuted { reader.read(text, voiceID: readerVoiceID) }
-                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 })
+                            guard !speech.isStarting && !speech.isRecording && !speech.isFinishing else { return }
+                            if reader.isSpeaking { reader.stop() }
+                            else { reader.read(text, voiceID: readerVoiceID) }
+                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 }, jump: historyJump)
                     }
-                    ComposerView(controller: controller, onSpeech: {
-                        if speech.isFinishing { return }
-                        if speech.isRecording || speech.isStarting { speech.stop() }
-                        else { reader.stop(); Task { await speech.start() } }
-                    }, speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
-                       speechPartial: speech.transcript,
-                       speechFinishing: speech.isFinishing,
-                       dismissKeyboardSignal: keyboardDismissSignal)
+                    ComposerView(controller: controller, onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
+                                 speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
+                                 speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
+                                 dismissKeyboardSignal: keyboardDismissSignal)
+                    if !controller.messages.isEmpty {
+                        Text("回答由 AI 生成，仅供参考")
+                            .font(.caption2).foregroundStyle(ChatTheme.muted)
+                            .padding(.top, 3)
+                    }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .background(ChatTheme.canvas)
@@ -99,7 +110,7 @@ struct RootView: View {
                     }
                 })
         }
-        .preferredColorScheme(displayScheme)
+        .background { WindowAppearance(mode: appearanceMode).frame(width: 0, height: 0) }
         .environment(\.locale, language == "system" ? .current : Locale(identifier: language))
         .dynamicTypeSize(displayTextSize)
         .onAppear {
@@ -111,20 +122,46 @@ struct RootView: View {
             }
         }
         .onDisappear {
-            speech.cancel()
+            cancelSpeech()
             speech.onCompletion = nil
             reader.stop()
         }
-        .onChange(of: readerMuted) { _, muted in if muted { reader.stop() } }
-        .onChange(of: settingsOpen) { _, open in
-            if open { keyboardDismissSignal &+= 1; speech.cancel(); reader.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { cancelSpeech(); reader.stop() }
         }
-        .onChange(of: controller.currentID) { _, _ in speech.cancel(); reader.stop() }
+        .onChange(of: readerMuted) { _, muted in if muted { reader.stop() } }
+        .onChange(of: controller.completedReplyText) { _, reply in
+            if let reply, !readerMuted, !settingsOpen, !modelSettingsOpen,
+               !speech.isStarting, !speech.isRecording, !speech.isFinishing {
+                reader.read(reply, voiceID: readerVoiceID)
+            }
+        }
+        .onChange(of: settingsOpen) { _, open in
+            if open { keyboardDismissSignal &+= 1; cancelSpeech(); reader.stop() }
+        }
+        .onChange(of: modelSettingsOpen) { _, open in
+            if open { keyboardDismissSignal &+= 1; cancelSpeech(); reader.stop() }
+        }
+        .onChange(of: controller.currentID) { _, id in
+            if historyJump?.sessionID != id { historyJump = nil }
+            cancelSpeech()
+            reader.stop()
+        }
         .sheet(isPresented: $settingsOpen) {
             NavigationStack { SettingsView(controller: controller) }
         }
         .sheet(isPresented: $modelSettingsOpen) {
             NavigationStack { ModelSettingsView(controller: controller) }
+        }
+        .fullScreenCover(isPresented: $historySearchOpen) {
+            HistorySearchView(sessions: controller.sessions, onClose: { historySearchOpen = false }) { sessionID, messageID in
+                guard !controller.isGenerating && !controller.isImporting else { return }
+                controller.open(sessionID)
+                sidebarOpen = false
+                historySearchOpen = false
+                if let messageID { historyJump = HistoryJump(sessionID: sessionID, messageID: messageID) }
+                else { historyJump = nil }
+            }
         }
         .alert("语音输入", isPresented: Binding(
             get: { speech.errorText != nil },
@@ -134,6 +171,30 @@ struct RootView: View {
         } message: {
             Text(speech.errorText ?? "")
         }
+    }
+
+    private func beginSpeech() {
+        guard !controller.isGenerating && !controller.isImporting else { return }
+        reader.stop()
+        keyboardDismissSignal &+= 1
+        speechStartTask?.cancel()
+        let locale = language == "system" ? Locale.current : Locale(identifier: language)
+        speechStartTask = Task {
+            guard !Task.isCancelled else { return }
+            await speech.start(locale: locale)
+        }
+    }
+
+    private func finishSpeech() {
+        speechStartTask?.cancel()
+        speechStartTask = nil
+        speech.stop()
+    }
+
+    private func cancelSpeech() {
+        speechStartTask?.cancel()
+        speechStartTask = nil
+        speech.cancel()
     }
 
     private var header: some View {
@@ -150,26 +211,27 @@ struct RootView: View {
             }
             .accessibilityLabel("打开历史对话")
             .accessibilityIdentifier("root.sidebar.open")
-            Spacer(minLength: 0)
-            if !controller.messages.isEmpty || controller.selectedModelName != nil {
+            if !controller.messages.isEmpty {
                 Button { modelSettingsOpen = true } label: {
-                    VStack(spacing: 2) {
-                        if !controller.messages.isEmpty {
-                            Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
-                                .font(.subheadline.weight(.semibold)).lineLimit(1)
-                        }
-                        if let name = controller.selectedModelName {
-                            Text(name).font(.caption).foregroundStyle(ChatTheme.muted).lineLimit(1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .contentShape(Rectangle())
+                    Text(controller.sessions.first(where: { $0.id == controller.currentID })?.title ?? "AmoreChat")
+                        .font(.headline).lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("选择模型")
+                .accessibilityHint("点按选择模型")
                 .accessibilityIdentifier("root.model.select")
+            } else if let name = controller.selectedModelName {
+                Button { modelSettingsOpen = true } label: {
+                    Text(name).font(.subheadline).lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("点按选择模型")
+                .accessibilityIdentifier("root.model.select")
+            } else {
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
             HStack(spacing: 1) {
                 Button {
                     readerMuted.toggle()

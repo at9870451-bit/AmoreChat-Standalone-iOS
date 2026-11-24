@@ -7,7 +7,8 @@ import UIKit
 @MainActor
 struct ComposerView: View {
     @Bindable var controller: ChatController
-    let onSpeech: () -> Void
+    let onSpeechStart: () -> Void
+    let onSpeechStop: () -> Void
     var speechInputActive = false
     var speechPartial = ""
     var speechFinishing = false
@@ -15,6 +16,9 @@ struct ComposerView: View {
 
     @FocusState private var messageFocused: Bool
     @State private var attachmentsOpen = false
+    @State private var voiceMode = false
+    @GestureState private var voiceTouchDown = false
+    @State private var holdingToSpeak = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var showingCamera = false
     @State private var showingFileImporter = false
@@ -32,18 +36,8 @@ struct ComposerView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !controller.backendReady && (controller.thinkingEnabled || controller.webSearchEnabled) {
-                Text("模式已选择；深度思考与智能搜索待接入后端后生效。")
-                    .font(.system(size: 11))
-                    .foregroundStyle(ComposerColors.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-                    .accessibilityIdentifier("composer.backend.note")
-            }
-
             if let error = controller.errorText, !error.isEmpty {
-                errorRow(error, retry: controller.backendReady && !controller.isGenerating)
+                errorRow(error, retry: controller.canRetry)
             }
             if let inputError {
                 errorRow(inputError, retry: false)
@@ -56,20 +50,10 @@ struct ComposerView: View {
                 }
 
                 HStack(alignment: .top, spacing: 4) {
-                    if speechInputActive {
-                        HStack(spacing: 8) {
-                            Image(systemName: "waveform").foregroundStyle(ComposerColors.blue)
-                            Text(speechFinishing ? "正在整理最终文字…" :
-                                 (speechPartial.isEmpty ? "正在聆听，请说话…" : speechPartial))
-                                .lineLimit(1...5)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .accessibilityIdentifier("composer.speech.partial")
-                        }
-                        .font(.system(size: 18))
-                        .foregroundStyle(ComposerColors.text)
-                        .frame(minHeight: 44, alignment: .topLeading)
+                    if voiceMode || speechInputActive {
+                        voicePad
                     } else {
-                        TextField("发消息或点按说话", text: $controller.draft, axis: .vertical)
+                        TextField("发消息或按住说话", text: $controller.draft, axis: .vertical)
                             .lineLimit(1...5)
                             .textInputAutocapitalization(.sentences)
                             .submitLabel(.send)
@@ -95,6 +79,7 @@ struct ComposerView: View {
                         HStack(spacing: 8) {
                             modeChip("深度思考", symbol: "atom", isOn: controller.thinkingEnabled) {
                                 guard !controller.isGenerating else { return }
+                                controller.errorText = nil
                                 if controller.thinkingEnabled { controller.thinkingEnabled = false }
                                 else if !controller.backendReady {
                                     controller.errorText = "请先在设置中添加可用的 AI 模型。"
@@ -104,6 +89,7 @@ struct ComposerView: View {
                             }
                             modeChip("智能搜索", symbol: "globe", isOn: controller.webSearchEnabled) {
                                 guard !controller.isGenerating else { return }
+                                controller.errorText = nil
                                 if controller.webSearchEnabled { controller.webSearchEnabled = false }
                                 else if !controller.backendReady {
                                     controller.errorText = "请先在设置中添加可用的 AI 模型。"
@@ -136,6 +122,7 @@ struct ComposerView: View {
                     .accessibilityLabel(attachmentsOpen ? "收起附件选项" : "添加附件")
                     .accessibilityIdentifier("composer.attach.toggle")
 
+                    if controller.isGenerating { stopAction }
                     primaryAction
                 }
                 .frame(height: 44)
@@ -173,6 +160,13 @@ struct ComposerView: View {
         }
         .onChange(of: controller.supportsWebSearch) { _, supported in
             if !supported { controller.webSearchEnabled = false }
+        }
+        .onChange(of: speechInputActive) { old, active in
+            if old && !active && hasContent { voiceMode = false }
+        }
+        .onChange(of: controller.currentID) { _, _ in
+            holdingToSpeak = false
+            voiceMode = false
         }
         .onChange(of: dismissKeyboardSignal) { _, _ in
             messageFocused = false
@@ -222,20 +216,49 @@ struct ComposerView: View {
         }
     }
 
+    private var voicePad: some View {
+        Text(speechFinishing ? "正在整理最终文字…" :
+             (speechPartial.isEmpty ? (holdingToSpeak || speechInputActive ? "正在聆听…" : "按住说话") : speechPartial))
+            .font(.body.weight(.semibold))
+            .foregroundStyle(speechInputActive ? ComposerColors.blue : ComposerColors.text)
+            .lineLimit(1...5)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).updating($voiceTouchDown) { _, down, _ in down = true })
+            .onChange(of: voiceTouchDown) { _, down in
+                if down {
+                    guard !controller.isGenerating, !controller.isImporting, !speechInputActive else { return }
+                    holdingToSpeak = true
+                    onSpeechStart()
+                } else if holdingToSpeak {
+                    holdingToSpeak = false
+                    onSpeechStop()
+                }
+            }
+            .accessibilityIdentifier("composer.speech.hold")
+            .accessibilityHint("按住实时听写，松开后填入草稿")
+            .accessibilityAction(named: Text(speechInputActive ? "结束听写" : "开始听写")) {
+                if speechInputActive { onSpeechStop() }
+                else if !controller.isGenerating && !controller.isImporting { onSpeechStart() }
+            }
+    }
+
+    private var stopAction: some View {
+        Button { controller.stop() } label: {
+            Image(systemName: "stop.circle.fill")
+                .font(.system(size: 27))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(ComposerColors.blue)
+        .accessibilityLabel("停止生成")
+        .accessibilityIdentifier("composer.stop")
+    }
+
     @ViewBuilder
     private var primaryAction: some View {
-        if controller.isGenerating {
-            Button { controller.stop() } label: {
-                Image(systemName: "stop.circle.fill")
-                    .font(.system(size: 27))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(ChatTheme.danger)
-            .accessibilityLabel("停止生成")
-            .accessibilityIdentifier("composer.stop")
-        } else if hasContent && !speechInputActive {
+        if hasContent && !speechInputActive && !controller.isGenerating {
             Button {
                 controller.send()
                 messageFocused = false
@@ -254,18 +277,22 @@ struct ComposerView: View {
                 ? "尚未配置模型，暂不能发送"
                 : "发送消息和附件")
         } else {
-            Button(action: onSpeech) {
-                Image(systemName: speechInputActive ? "waveform.circle.fill" : "waveform.circle")
+            Button {
+                if speechInputActive { onSpeechStop(); return }
+                voiceMode.toggle()
+                attachmentsOpen = false
+                messageFocused = !voiceMode
+            } label: {
+                Image(systemName: speechInputActive ? "waveform.circle.fill" : (voiceMode ? "keyboard.circle" : "waveform.circle"))
                     .font(.system(size: 27))
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(speechFinishing)
+            .disabled(speechFinishing || controller.isGenerating || controller.isImporting)
             .foregroundStyle(speechInputActive ? ChatTheme.accent : ComposerColors.text)
-            .accessibilityLabel(speechFinishing ? "正在整理语音" : (speechInputActive ? "结束语音输入" : "语音输入"))
-            .accessibilityIdentifier("composer.speech")
-            .accessibilityHint("点击开始实时听写，再次点击结束")
+            .accessibilityLabel(speechFinishing ? "正在整理语音" : (speechInputActive ? "结束语音输入" : (voiceMode ? "切换键盘" : "语音输入")))
+            .accessibilityIdentifier(voiceMode && !speechInputActive ? "composer.keyboard" : "composer.speech")
         }
     }
 

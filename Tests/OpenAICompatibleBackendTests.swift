@@ -87,7 +87,8 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
         XCTAssertEqual(messages.count, 3)
         XCTAssertEqual(messages[1]["content"] as? String, "previous")
-        XCTAssertEqual(messages[1]["reasoning"] as? String, "thinking")
+        XCTAssertNil(messages[1]["reasoning"])
+        XCTAssertNil(messages[1]["reasoning_content"])
     }
 
     func testRejectsInvalidURLAndUnsupportedSearchBeforeNetwork() async throws {
@@ -104,6 +105,22 @@ final class OpenAICompatibleBackendTests: XCTestCase {
             XCTFail("Search on OpenAI must fail closed")
         } catch { XCTAssertTrue(error.localizedDescription.contains("OpenRouter")) }
         XCTAssertNil(StreamingURLProtocol.capturedRequest)
+    }
+
+    func testDeepSeekThinkingSwitchAndVerifiedSearchEndpoint() throws {
+        let deepSeek = backend(profile(.deepSeek, appendV1: false))
+        for enabled in [false, true] {
+            let body = try deepSeek.requestBody(messages: history,
+                options: ChatOptions(deepThinking: enabled, webSearch: false))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            XCTAssertEqual((json["thinking"] as? [String: String])?["type"], enabled ? "enabled" : "disabled")
+            XCTAssertNil(json["plugins"])
+        }
+        XCTAssertTrue(profile().allowsWebSearch)
+        XCTAssertFalse(profile(.deepSeek).allowsWebSearch)
+        XCTAssertFalse(profile(.openRouter, base: "https://example.com/api").allowsWebSearch)
+        XCTAssertFalse(profile(.openRouter, base: "https://openrouter.ai/other").allowsWebSearch)
+        XCTAssertFalse(profile(.deepSeek, base: "https://example.com").allowsThinking)
     }
 
     func testErrorBodyNeverAppearsInUserFacingMessage() async throws {

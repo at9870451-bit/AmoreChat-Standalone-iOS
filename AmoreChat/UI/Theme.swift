@@ -22,7 +22,15 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
         }
     }
 
-    /// A nil preference is important: it lets the OS change styles while the app is open.
+    var interfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: .unspecified
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    /// Retained for compatibility with view layout and theme tests.
     var colorScheme: ColorScheme? {
         switch self {
         case .system: nil

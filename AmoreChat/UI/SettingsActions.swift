@@ -41,7 +41,7 @@ struct DataManagementPage: View {
         .sheet(isPresented: $showDeepSeekImport) {
             NavigationStack {
                 DeepSeekImportView { result in
-                    _ = try await controller.importDeepSeek(result)
+                    try await controller.importDeepSeek(result)
                 }
                 .navigationTitle("导入聊天记录")
                 .navigationBarTitleDisplayMode(.inline)

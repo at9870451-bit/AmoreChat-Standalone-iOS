@@ -70,6 +70,19 @@ final class DeepSeekImportTests: XCTestCase {
         XCTAssertEqual(result.merging(into: result.sessions).added, 0)
     }
 
+    func testHostedV3LayoutUsesNamedEntriesAndOptionalCurrentBranch() throws {
+        let (manifest, session, _) = example()
+        let minimalIndex = #"[{"id":"synthetic-1","pinned":true,"inserted_at":"2026-01-05T09:00:00.000Z","updated_at":"2026-01-05T09:00:00.000Z"}]"#
+        let hostedSession = session.replacingOccurrences(of: "\"current_message_id\":4,", with: "")
+            .replacingOccurrences(of: "\"updated_at\":\"\(stamp)\",", with: "")
+        let result = try parse([("user.json", "{}"), ("chat_session_index.json", minimalIndex),
+                                ("chat_sessions/synthetic-1.json", hostedSession), ("manifest.json", manifest)])
+        let first = try XCTUnwrap(result.sessions.first)
+        XCTAssertTrue(first.isPinned)
+        XCTAssertEqual(first.messages.last?.content, "谢谢")
+        XCTAssertEqual(first.messages.dropFirst().first?.reasoningDuration, 1.2)
+    }
+
     func testUnexpectedOrTruncatedMessagesFailWithoutPartialResult() throws {
         let (manifest, session, index) = example()
         XCTAssertThrowsError(try parse([("manifest.json", manifest),

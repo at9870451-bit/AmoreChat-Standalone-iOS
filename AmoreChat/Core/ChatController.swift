@@ -40,18 +40,14 @@ import Observation
     var webSearchEnabled = false
     var isGenerating = false
     var isLoading = true
+    var canRetry: Bool { backendReady && !isGenerating && messages.last?.status == .failed && messages.last?.role == .assistant }
+    private(set) var completedReplyText: String?
     private(set) var isImporting = false
     var errorText: String?
     var backendReady: Bool { backend.isConfigured }
     var selectedModelName: String? { injectedBackend ? nil : catalog.active?.label }
-    var supportsThinking: Bool { injectedBackend || (catalog.active != nil && catalog.active?.provider != .custom) }
-    var supportsWebSearch: Bool {
-        guard !injectedBackend, let profile = catalog.active,
-              profile.provider == .openRouter,
-              let components = URLComponents(string: profile.baseURL) else { return false }
-        return components.scheme?.lowercased() == "https"
-            && components.host?.lowercased() == "openrouter.ai"
-    }
+    var supportsThinking: Bool { injectedBackend || catalog.active?.allowsThinking == true }
+    var supportsWebSearch: Bool { !injectedBackend && catalog.active?.allowsWebSearch == true }
     var messages: [ChatMessage] {
         guard let currentID else { return [] }
         return sessions.first(where: { $0.id == currentID })?.messages ?? []
@@ -77,12 +73,16 @@ import Observation
     func refreshBackend() {
         guard !injectedBackend else { return }
         guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
-        guard let profile = catalog.active,
-              let key = catalog.apiKey(for: profile.id), !key.isEmpty else {
+        let profile = catalog.active
+        if let profile, let key = catalog.apiKey(for: profile.id), !key.isEmpty {
+            backend = OpenAICompatibleBackend(profile: profile, apiKey: key)
+        } else {
             backend = UnconfiguredBackend()
-            return
         }
-        backend = OpenAICompatibleBackend(profile: profile, apiKey: key)
+        // Paid search consent applies to the current configuration, not a new key/model.
+        webSearchEnabled = false
+        if !supportsThinking || !backendReady { thinkingEnabled = false }
+        errorText = nil
     }
 
     func selectModel(_ id: UUID) {
@@ -251,9 +251,10 @@ import Observation
         guard !isImporting, !isGenerating, backendReady, let id = currentID,
               let index = sessions.firstIndex(where: { $0.id == id }) else { return }
         var history = sessions[index].messages
-        guard history.last?.role == .assistant, history.last?.status == .failed else { return }
+        guard history.last?.role == .assistant, history.last?.status == .failed,
+              history.dropLast().last?.role == .user else { return }
         history.removeLast()
-        guard history.last?.role == .user else { return }
+        errorText = nil
         sessions[index].messages = history
         startResponse(in: id, history: history)
     }
@@ -294,22 +295,44 @@ import Observation
         let reply = ChatMessage(role: .assistant, content: "", status: .streaming)
         append(reply, to: id)
         isGenerating = true
-        let options = ChatOptions(deepThinking: thinkingEnabled, webSearch: webSearchEnabled)
+        let options = ChatOptions(deepThinking: thinkingEnabled && supportsThinking,
+                                  webSearch: webSearchEnabled && supportsWebSearch)
+        completedReplyText = nil
         streamTask = Task {
+            let clock = ProcessInfo.processInfo
+            var thinkingStart: TimeInterval?
+            var answering = false
+            var answer = ""
             do {
                 let chunks = try await backend.stream(messages: history, options: options)
                 for try await chunk in chunks {
                     try Task.checkCancellation()
                     mutateReply(reply.id, in: id) { value in
                         switch chunk {
-                        case .text(let text): value.content += text
-                        case .reasoning(let text): value.reasoning = (value.reasoning ?? "") + text
+                        case .text(let text):
+                            if !answering, let thinkingStart {
+                                value.reasoningDuration = max(0, clock.systemUptime - thinkingStart)
+                            }
+                            answering = true
+                            value.content += text
+                            answer += text
+                        case .reasoning(let text):
+                            if thinkingStart == nil && !answering { thinkingStart = clock.systemUptime }
+                            value.reasoning = (value.reasoning ?? "") + text
                         }
                     }
                     persist()
                 }
                 try Task.checkCancellation()
-                mutateReply(reply.id, in: id) { $0.status = .complete }
+                mutateReply(reply.id, in: id) {
+                    if !answering, let thinkingStart {
+                        $0.reasoningDuration = max(0, clock.systemUptime - thinkingStart)
+                    }
+                    $0.status = .complete
+                }
+                if !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    completedReplyText = answer
+                }
             } catch is CancellationError {
                 mutateReply(reply.id, in: id) { $0.status = .failed }
                 errorText = "已停止生成。"

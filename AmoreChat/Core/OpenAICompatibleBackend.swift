@@ -17,10 +17,7 @@ struct OpenAICompatibleBackend: ChatBackend {
 
     // Configuration is validated at send time, so the controller can display the specific error.
     var isConfigured: Bool { true }
-    var supportsWebSearch: Bool {
-        profile.provider == .openRouter &&
-        URLComponents(string: profile.baseURL)?.host?.lowercased() == "openrouter.ai"
-    }
+    var supportsWebSearch: Bool { profile.allowsWebSearch }
 
     func stream(messages: [ChatMessage], options: ChatOptions) async throws -> AsyncThrowingStream<BackendChunk, Error> {
         try Task.checkCancellation()
@@ -30,7 +27,7 @@ struct OpenAICompatibleBackend: ChatBackend {
         else { throw AdapterError.invalidKey }
         guard !messages.isEmpty else { throw AdapterError.emptyConversation }
         guard !options.webSearch || supportsWebSearch else { throw AdapterError.unsupportedWebSearch }
-        guard !options.deepThinking || profile.provider != .custom else { throw AdapterError.unsupportedThinking }
+        guard !options.deepThinking || profile.allowsThinking else { throw AdapterError.unsupportedThinking }
         let body = try requestBody(messages: messages, options: options)
         try Task.checkCancellation()
 
@@ -99,7 +96,9 @@ struct OpenAICompatibleBackend: ChatBackend {
         switch profile.provider {
         case .deepSeek:
             // https://api-docs.deepseek.com/guides/thinking_mode (OpenAI format)
-            payload["thinking"] = ["type": options.deepThinking ? "enabled" : "disabled"]
+            if profile.allowsThinking {
+                payload["thinking"] = ["type": options.deepThinking ? "enabled" : "disabled"]
+            }
         case .openAI:
             // Only opt in; some OpenAI models do not accept reasoning_effort.
             if options.deepThinking { payload["reasoning_effort"] = "high" }
@@ -120,10 +119,9 @@ struct OpenAICompatibleBackend: ChatBackend {
         if message.role == .assistant {
             guard message.attachments.isEmpty else { throw AdapterError.unsupportedAttachment }
             result["content"] = message.content
-            if let reasoning = message.reasoning, !reasoning.isEmpty {
-                if profile.provider == .deepSeek { result["reasoning_content"] = reasoning }
-                if profile.provider == .openRouter { result["reasoning"] = reasoning }
-            }
+            // This plain chat adapter does not send tool calls. Previously
+            // displayed reasoning (including imported history) stays local.
+            // It need not be echoed across models to continue a text chat.
             return result
         }
         var text = message.content

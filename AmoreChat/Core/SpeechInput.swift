@@ -200,7 +200,8 @@ private final class SpeechCallbackSequence: @unchecked Sendable {
         do {
             let audioSession = AVAudioSession.sharedInstance()
             try audioSession.setCategory(.record, mode: .measurement)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+            // notifyOthersOnDeactivation is only valid when deactivating.
+            try audioSession.setActive(true)
             sessionActivated = true
             guard audioSession.isInputAvailable else {
                 failStart(id, message: "找不到可用的麦克风，请检查音频设备。")

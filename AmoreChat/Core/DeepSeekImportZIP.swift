@@ -125,7 +125,9 @@ struct DeepSeekImportZIP {
         if entry.method == 0 { result = compressed }
         else {
             guard !compressed.isEmpty else { throw DeepSeekImportError.invalidZIP }
-            let capacity = max(1, entry.expanded)
+            // One extra byte detects an underestimated output size instead of
+            // accepting a truncated prefix with a matching CRC.
+            let capacity = entry.expanded + 1
             var output = Data(count: capacity)
             let written = output.withUnsafeMutableBytes { destination in
                 compressed.withUnsafeBytes { source in
