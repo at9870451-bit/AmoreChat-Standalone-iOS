@@ -198,7 +198,7 @@ final class OpenAICompatibleBackendTests: XCTestCase {
             content: "Please summarize", attachments: [attachment])], options: plain)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
         let list = try XCTUnwrap(json["messages"] as? [[String: Any]])
-        let text = try XCTUnwrap(list.first?["content"] as? String)
+        let text = try XCTUnwrap(list.last?["content"] as? String)
         XCTAssertTrue(text.contains("Sample PDF body"))
     }
 
