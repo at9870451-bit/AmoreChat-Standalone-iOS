@@ -89,10 +89,15 @@ struct OpenAICompatibleBackend: ChatBackend {
     }
 
     func requestBody(messages: [ChatMessage], options: ChatOptions) throws -> Data {
+        var encodedMessages = try messages.map(encodeMessage)
+        // The persona is a static built-in instruction only. It never contains
+        // imported archive text or a user profile, and it is sent as a system
+        // message so every configured provider gets the same conversational style.
+        encodedMessages.insert(["role": "system", "content": BuiltInPersona.instruction], at: 0)
         var payload: [String: Any] = [
             "model": profile.modelID,
             "stream": true,
-            "messages": try messages.map(encodeMessage)
+            "messages": encodedMessages
         ]
         switch profile.thinkingProtocol {
         case .deepSeekSwitch:

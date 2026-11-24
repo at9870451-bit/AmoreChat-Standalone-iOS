@@ -85,10 +85,12 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         XCTAssertEqual((json["reasoning"] as? [String: Bool])?["enabled"], true)
         XCTAssertEqual(((json["plugins"] as? [[String: String]])?.first)?["id"], "web")
         let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
-        XCTAssertEqual(messages.count, 3)
-        XCTAssertEqual(messages[1]["content"] as? String, "previous")
-        XCTAssertNil(messages[1]["reasoning"])
-        XCTAssertNil(messages[1]["reasoning_content"])
+        XCTAssertEqual(messages.count, 4)
+        XCTAssertEqual(messages.first?["role"] as? String, "system")
+        XCTAssertTrue((messages.first?["content"] as? String)?.contains("个人 AI 助手") == true)
+        XCTAssertEqual(messages[2]["content"] as? String, "previous")
+        XCTAssertNil(messages[2]["reasoning"])
+        XCTAssertNil(messages[2]["reasoning_content"])
     }
 
     func testRejectsInvalidURLAndUnsupportedSearchBeforeNetwork() async throws {
