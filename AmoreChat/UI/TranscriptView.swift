@@ -7,6 +7,7 @@ struct TranscriptView: View {
     @Bindable var controller: ChatController
     let onReadAloud: (String) -> Void
     var onBackgroundTap: () -> Void = {}
+    var forceBottomSignal: Int = 0
     var jump: HistoryJump? = nil
     @State private var nearBottom = true
     @State private var visibleLimit = 80
@@ -78,7 +79,16 @@ struct TranscriptView: View {
                 }
             }
             .onChange(of: revision) { _, _ in
-                if nearBottom { reader.scrollTo(bottomID, anchor: .bottom) }
+                // New user turns and streaming chunks always win over a prior
+                // manual scroll position, matching the reference chat behavior.
+                withAnimation(.easeOut(duration: 0.12)) {
+                    reader.scrollTo(bottomID, anchor: .bottom)
+                }
+                nearBottom = true
+            }
+            .onChange(of: forceBottomSignal) { _, _ in
+                reader.scrollTo(bottomID, anchor: .bottom)
+                nearBottom = true
             }
             .task(id: ScrollTarget(sessionID: controller.currentID, jump: jump)) {
                 if let jump, jump.sessionID == controller.currentID,

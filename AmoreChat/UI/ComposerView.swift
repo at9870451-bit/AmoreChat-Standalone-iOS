@@ -7,6 +7,7 @@ import UIKit
 struct ComposerView: View {
     @Bindable var controller: ChatController
     let onVoiceModeEntered: () -> Void
+    var onInputFocus: () -> Void = {}
     let onSpeechStart: () -> Void
     let onSpeechStop: () -> Void
     var speechInputActive = false
@@ -75,6 +76,9 @@ struct ComposerView: View {
                             .textInputAutocapitalization(.sentences)
                             .submitLabel(.send)
                             .focused($messageFocused)
+                            .onChange(of: messageFocused) { _, focused in
+                                if focused { onInputFocus() }
+                            }
                             .onSubmit {
                                 if canSend { controller.send(); messageFocused = false }
                             }

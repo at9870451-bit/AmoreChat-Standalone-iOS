@@ -23,6 +23,7 @@ struct RootView: View {
     @State private var historySearchOpen = false
     @State private var historyJump: HistoryJump?
     @State private var keyboardDismissSignal = 0
+    @State private var forceBottomSignal = 0
     @State private var speechStartTask: Task<Void, Never>?
     @State private var speechPermissionTask: Task<Void, Never>?
     @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
@@ -77,9 +78,11 @@ struct RootView: View {
                             guard !speech.isStarting && !speech.isRecording && !speech.isFinishing else { return }
                             if reader.isSpeaking { reader.stop() }
                             else { reader.read(text, voiceID: readerVoiceID) }
-                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 }, jump: historyJump)
+                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 },
+                                       forceBottomSignal: forceBottomSignal, jump: historyJump)
                     }
                     ComposerView(controller: controller, onVoiceModeEntered: prepareSpeech,
+                                 onInputFocus: { forceBottomSignal &+= 1 },
                                  onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
                                  speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
                                  speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
