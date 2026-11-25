@@ -8,6 +8,7 @@ struct ModelSettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var catalog = ModelCatalog.shared
+    @Environment(BackendAuthStore.self) private var backend
     @State private var editor: EditorRequest?
     @State private var removalID: UUID?
     @State private var showsRemovalConfirmation = false
@@ -97,6 +98,8 @@ struct ModelSettingsView: View {
                 .accessibilityIdentifier("model.add")
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { adInset }
+        .task { await backend.loadPublicConfig() }
         .sheet(item: $editor) { request in
             NavigationStack {
                 ModelEditorView(controller: controller, catalog: catalog, existing: request.profile)

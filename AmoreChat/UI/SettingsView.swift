@@ -22,7 +22,13 @@ struct SettingsView: View {
             VStack(spacing: 23) {
                 header
                 section("账户") {
-                    row("账号管理", symbol: "person.crop.circle", page: .account)
+                    row("账号管理", symbol: "person.crop.circle", value: backend.user?.username, page: .account)
+                    separator
+                    Button { page = .account } label: {
+                        rowLabel("Token 额度", symbol: "bolt.circle", value: backend.user.map { BackendAuthStore.tokenText($0.tokenBalance) } ?? "—")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.row.tokens")
                     separator
                     row("数据管理", symbol: "externaldrive", page: .data)
                 }

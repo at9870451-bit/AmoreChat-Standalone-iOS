@@ -57,7 +57,7 @@ final class BackendAuthStore {
     var displayUsername: String { user?.username ?? "" }
 
     func start() async {
-        guard !isTestMode, !started else { return }
+        guard !isTestMode, !forcedSignedOut, !started else { return }
         started = true
         errorText = nil
         Task { await loadPublicConfig() }
@@ -211,7 +211,7 @@ final class BackendAuthStore {
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
-    static func compactTokenText(_ value: Int64) -> String {
+    nonisolated static func compactTokenText(_ value: Int64) -> String {
         if value >= 100_000_000 { return String(format: "%.2f 亿", Double(value) / 100_000_000) }
         if value >= 10_000 { return String(format: "%.2f 万", Double(value) / 10_000) }
         return "\(value)"

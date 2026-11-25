@@ -44,6 +44,8 @@ import Observation
     private(set) var completedReplyText: String?
     private(set) var isImporting = false
     private(set) var isAttachingFile = false
+    private(set) var uploadFileLimitBytes: Int64 = 8 * 1024 * 1024
+    private(set) var uploadImageLimitBytes: Int64 = 10 * 1024 * 1024
     var errorText: String?
     var backendReady: Bool { backend.isConfigured }
     var selectedModelName: String? { injectedBackend ? injectedModelName : catalog.active?.label }

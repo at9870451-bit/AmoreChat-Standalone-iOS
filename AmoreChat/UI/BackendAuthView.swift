@@ -21,7 +21,7 @@ struct BackendAuthView: View {
                 VStack(spacing: 7) {
                     Text(mode == .login ? "登录 AmoreChat" : "创建账户")
                         .font(.system(size: 25, weight: .semibold))
-                    Text(mode == .login ? "你的会话、模型和 token 额度会跟随账户显示" : "注册必须使用有效邀请码")
+                    Text(mode == .login ? "登录后查看账户额度；本机会话与模型配置不会自动上传。" : "注册必须使用有效邀请码")
                         .font(.footnote)
                         .foregroundStyle(ChatTheme.muted)
                         .multilineTextAlignment(.center)

@@ -58,6 +58,7 @@ struct RootView: View {
     @Environment(\.dynamicTypeSize) private var systemTextSize
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(BackendAuthStore.self) private var backend
     @ScaledMetric(relativeTo: .headline) private var headerTitleSize: CGFloat = 16
 
     private var appearanceMode: AppearanceMode { AppearanceMode(storedValue: appearance) }

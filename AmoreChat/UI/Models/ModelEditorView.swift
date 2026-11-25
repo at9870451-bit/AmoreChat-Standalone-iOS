@@ -9,6 +9,7 @@ struct ModelEditorView: View {
     let existing: ModelProfile?
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(BackendAuthStore.self) private var backend
     @State private var provider: ModelProvider
     @State private var label: String
     @State private var baseURL: String
@@ -42,6 +43,10 @@ struct ModelEditorView: View {
 
     var body: some View {
         Form {
+            if existing == nil, let config = backend.publicConfig, config.adEnabled,
+               !config.adTitle.isEmpty || !config.adImageUrl.isEmpty {
+                Section { BackendAdBanner(config: config) }
+            }
             Section {
                 Picker("服务商", selection: $provider) {
                     ForEach(ModelProvider.allCases, id: \.self) { item in

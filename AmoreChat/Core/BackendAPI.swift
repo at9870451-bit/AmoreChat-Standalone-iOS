@@ -103,7 +103,7 @@ enum BackendError: LocalizedError, Sendable {
         case .network: return "无法连接服务器，请检查网络后重试。"
         case .invalidResponse: return "服务器返回了无法识别的内容。"
         case .unauthorized: return "登录状态已失效，请重新登录。"
-        case .http(_, code, message):
+        case let .http(_, code, message):
             if message.isEmpty { return "服务器错误（\(code)）" }
             return message
         }
@@ -129,15 +129,19 @@ private struct BackendErrorEnvelope: Decodable {
     let error: Detail
 }
 
-private struct BackendEmpty: Decodable {}
+private struct BackendEmpty: Codable {}
 
 actor BackendClient {
     private let session: URLSession
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(session: URLSession = .shared) {
-        self.session = session
+    init(session: URLSession? = nil) {
+        // Login bodies and bearer tokens belong only to the configured origin.
+        let config = URLSessionConfiguration.ephemeral
+        config.urlCache = nil
+        config.httpCookieStorage = nil
+        self.session = session ?? URLSession(configuration: config, delegate: ModelNoRedirect.shared, delegateQueue: nil)
     }
 
     func login(username: String, password: String) async throws -> BackendAuthResponse {
