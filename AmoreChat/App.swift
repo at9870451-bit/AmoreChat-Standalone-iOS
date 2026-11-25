@@ -2,14 +2,38 @@ import SwiftUI
 
 @main
 struct AmoreChatStandaloneApp: App {
+    @State private var auth = BackendAuthStore()
     @State private var controller = AppControllerFactory.make()
     @State private var speech = SpeechInput()
     @State private var reader = SpeechReader()
 
     var body: some Scene {
         WindowGroup {
-            RootView(controller: controller, speech: speech, reader: reader)
+            BackendGateView(auth: auth, controller: controller, speech: speech, reader: reader)
         }
+    }
+}
+
+@MainActor
+struct BackendGateView: View {
+    @Bindable var auth: BackendAuthStore
+    @Bindable var controller: ChatController
+    @Bindable var speech: SpeechInput
+    @Bindable var reader: SpeechReader
+
+    var body: some View {
+        Group {
+            switch auth.phase {
+            case .checking:
+                BackendStartupView()
+            case .signedOut:
+                BackendAuthView(auth: auth)
+            case .signedIn:
+                RootView(controller: controller, speech: speech, reader: reader)
+            }
+        }
+        .environment(auth)
+        .task { await auth.start() }
     }
 }
 
@@ -140,7 +164,9 @@ struct RootView: View {
         .task {
             // Make the user-managed destination available in Files on first launch.
             await Task.detached(priority: .utility) { _ = try? ImportFolder.directory() }.value
+            applyBackendLimits()
         }
+        .onChange(of: backend.publicConfig) { _, _ in applyBackendLimits() }
         .onAppear {
             speech.onCompletion = { [weak controller, weak speech] text in
                 guard let controller, !text.isEmpty else { return }
@@ -235,6 +261,11 @@ struct RootView: View {
         speechPermissionTask?.cancel()
         speechPermissionTask = nil
         speech.cancel()
+    }
+
+    private func applyBackendLimits() {
+        let limits = backend.publicConfig.map(BackendUploadLimits.init) ?? .fallback
+        controller.setUploadLimits(fileBytes: limits.fileBytes, imageBytes: limits.imageBytes)
     }
 
     private func setSidebar(_ open: Bool) {

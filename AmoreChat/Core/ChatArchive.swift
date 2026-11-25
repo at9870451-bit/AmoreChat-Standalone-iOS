@@ -28,7 +28,8 @@ actor ChatArchive {
         try encoder.encode(sessions).write(to: archiveURL, options: .atomic)
     }
 
-    func importFile(_ source: URL, preferredName: String? = nil) throws -> ChatAttachment {
+    func importFile(_ source: URL, preferredName: String? = nil,
+                    maxBytes: Int = 8 * 1_024 * 1_024) throws -> ChatAttachment {
         try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
         let id = UUID()
         let sourceName = source.lastPathComponent

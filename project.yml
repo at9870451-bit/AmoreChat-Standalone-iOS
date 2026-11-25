@@ -23,14 +23,15 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.amorechat.standalone
-        MARKETING_VERSION: "0.3.2"
-        CURRENT_PROJECT_VERSION: "5"
+        MARKETING_VERSION: "0.4.0"
+        CURRENT_PROJECT_VERSION: "6"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGNING_ALLOWED: NO
     info:
       path: AmoreChat/Info.plist
       properties:
         CFBundleDisplayName: AmoreChat
+        BackendBaseURL: https://154.12.83.231.sslip.io
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}

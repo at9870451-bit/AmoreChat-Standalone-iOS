@@ -233,13 +233,18 @@ import Observation
         }
     }
 
+    func setUploadLimits(fileBytes: Int64, imageBytes: Int64) {
+        uploadFileLimitBytes = max(1_024, min(fileBytes, 64 * 1024 * 1024))
+        uploadImageLimitBytes = max(1_024, min(imageBytes, 32 * 1024 * 1024))
+    }
+
     func attach(_ url: URL) async {
         guard !isLoading, !isGenerating, !isImporting, !isAttachingFile else { return }
         let sessionAtSelection = currentID
         isAttachingFile = true
         defer { isAttachingFile = false }
         do {
-            let file = try await archive.importFile(url)
+            let file = try await archive.importFile(url, maxBytes: Int(uploadFileLimitBytes))
             if !Task.isCancelled && currentID == sessionAtSelection && !isImporting && !isGenerating {
                 attachments.append(file)
                 errorText = nil
@@ -255,6 +260,10 @@ import Observation
     }
 
     func attachImage(_ data: Data) async {
+        guard Int64(data.count) <= uploadImageLimitBytes else {
+            errorText = "图片超过后台设置的 \(ByteCountFormatter.string(fromByteCount: uploadImageLimitBytes, countStyle: .file)) 上限。"
+            return
+        }
         do { attachments.append(try await archive.importImage(data)) }
         catch { errorText = "图片导入失败：\(error.localizedDescription)" }
     }

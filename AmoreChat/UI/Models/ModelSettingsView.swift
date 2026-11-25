@@ -116,6 +116,23 @@ struct ModelSettingsView: View {
         }
     }
 
+    private var activeAd: BackendPublicConfig? {
+        guard let config = backend.publicConfig, config.adEnabled,
+              !config.adTitle.isEmpty || !config.adImageUrl.isEmpty else { return nil }
+        return config
+    }
+
+    private var adInset: some View {
+        Group {
+            if let ad = activeAd {
+                BackendAdBanner(config: ad)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.ultraThinMaterial)
+            }
+        }
+    }
+
     private func profileRow(_ profile: ModelProfile) -> some View {
         HStack(spacing: 12) {
             Button {

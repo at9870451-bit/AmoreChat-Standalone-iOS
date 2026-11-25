@@ -7,6 +7,7 @@ import SwiftUI
     let onSettings: () -> Void
     let onSearch: () -> Void
     @AppStorage("standalone.profile.nickname") private var nickname = "访客"
+    @Environment(BackendAuthStore.self) private var backend
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var itemFontSize: CGFloat = 16
     @ScaledMetric(relativeTo: .caption) private var headerFontSize: CGFloat = 13

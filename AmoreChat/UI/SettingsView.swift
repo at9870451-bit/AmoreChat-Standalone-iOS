@@ -8,13 +8,13 @@ private enum SettingsPage: String, Identifiable {
 struct SettingsView: View {
     @Bindable var controller: ChatController
     @Environment(\.dismiss) private var dismiss
+    @Environment(BackendAuthStore.self) private var backend
     @State private var page: SettingsPage?
     @State private var showVoice = false
     @AppStorage("standalone.reasoning.autoFold") private var autoFoldReasoning = true
     @AppStorage(AppearanceMode.storageKey) private var appearance = AppearanceMode.system.rawValue
     @AppStorage("standalone.appLanguage") private var language = "system"
     @AppStorage("standalone.fontScale") private var fontScale = 1.0
-    @AppStorage("standalone.profile.nickname") private var nickname = "访客"
     private var appearanceMode: AppearanceMode { AppearanceMode(storedValue: appearance) }
 
     var body: some View {
@@ -214,11 +214,6 @@ struct SettingsView: View {
     }
 
     private var accountPage: some View {
-        Form {
-            LabeledContent("本机身份", value: nickname.isEmpty ? "访客" : nickname)
-            LabeledContent("云账号", value: "未连接")
-            Text("尚未提供后端账号接口。不能在此页面假装登录或同步。")
-                .font(.footnote).foregroundStyle(.secondary)
-        }
+        BackendAccountView(controller: controller)
     }
 }
