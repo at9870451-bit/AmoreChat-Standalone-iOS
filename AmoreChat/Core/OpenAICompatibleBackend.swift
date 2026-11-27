@@ -111,7 +111,7 @@ struct OpenAICompatibleBackend: ChatBackend {
         if options.webSearch && profile.allowsWebSearch {
             payload["plugins"] = [["id": "web"]]
         }
-        guard let body = try? JSONSerialization.data(withJSONObject: payload), body.count <= 12 * 1_024 * 1_024
+        guard let body = try? JSONSerialization.data(withJSONObject: payload)
         else { throw AdapterError.invalidRequest }
         return body
     }

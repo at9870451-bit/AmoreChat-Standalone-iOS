@@ -90,7 +90,12 @@ struct BackendServerModel: Decodable, Identifiable, Sendable, Equatable {
     let model: String
     let provider: String
     let supportsThinking: Bool
+    let supportsWebSearch: Bool?
     let maxOutputTokens: Int
+    let routeCount: Int?
+
+    var webSearchEnabled: Bool { supportsWebSearch == true }
+    var routeTotal: Int { max(1, routeCount ?? 1) }
 }
 
 private struct BackendServerModelList: Decodable, Sendable {

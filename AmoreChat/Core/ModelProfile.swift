@@ -76,7 +76,7 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var allowsThinking: Bool { thinkingProtocol != nil }
 
     var allowsWebSearch: Bool {
-        guard provider != .amoreServer else { return false }
+        if provider == .amoreServer { return compatibleWebSearch == true }
         guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1) else { return false }
         if provider == .custom { return compatibleWebSearch == true }
         return provider == .openRouter && apiHost == "openrouter.ai"

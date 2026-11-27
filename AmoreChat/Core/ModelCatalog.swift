@@ -67,7 +67,7 @@ import Security
         profile.modelID = String(remote.id)
         profile.appendV1 = false
         profile.compatibleThinking = remote.supportsThinking ? .reasoningEffort : nil
-        profile.compatibleWebSearch = false
+        profile.compatibleWebSearch = remote.supportsWebSearch ?? false
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles[index] = profile
         } else {

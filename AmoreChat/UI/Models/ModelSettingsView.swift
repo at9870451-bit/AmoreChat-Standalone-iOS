@@ -180,7 +180,7 @@ struct ModelSettingsView: View {
                     Text(model.label).font(.body.weight(.medium)).foregroundStyle(.primary)
                     Text("\(model.provider) · \(model.model)").font(.subheadline)
                         .foregroundStyle(.secondary).lineLimit(2)
-                    Text(model.supportsThinking ? "服务器额度 · 支持思考参数" : "服务器额度")
+                    Text(capabilityLine(model))
                         .font(.caption2).foregroundStyle(ChatTheme.muted)
                 }
                 Spacer(minLength: 0)
@@ -198,6 +198,14 @@ struct ModelSettingsView: View {
         .accessibilityLabel("选择服务器模型 \(model.label)，使用服务器 token 额度")
         .accessibilityValue(active ? "当前使用" : "未选择")
         .accessibilityIdentifier("model.server.\(model.id)")
+    }
+
+    private func capabilityLine(_ model: BackendServerModel) -> String {
+        var parts = ["服务器额度"]
+        if model.routeTotal > 1 { parts.append("\(model.routeTotal) 路上游聚合") }
+        if model.supportsThinking { parts.append("思考") }
+        if model.webSearchEnabled { parts.append("智能搜索") }
+        return parts.joined(separator: " · ")
     }
 
     private func profileRow(_ profile: ModelProfile) -> some View {
