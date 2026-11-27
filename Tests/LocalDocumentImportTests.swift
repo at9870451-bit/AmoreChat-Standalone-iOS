@@ -72,21 +72,18 @@ final class LocalDocumentImportTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: source), bytes)
     }
 
-    func testArchiveOversizeDoesNotLeaveAnAttachment() async throws {
+    func testLocalArchiveHasNoServerUploadLimit() async throws {
         let root = try sandbox()
-        let source = root.appendingPathComponent("oversize.txt")
+        let source = root.appendingPathComponent("large-local.txt")
         let archiveRoot = root.appendingPathComponent("archive", isDirectory: true)
         let archive = ChatArchive(root: archiveRoot)
-        let limit = 8 * 1_024 * 1_024
-        try Data(repeating: 0x61, count: limit + 1).write(to: source)
-        do {
-            _ = try await archive.importFile(source)
-            XCTFail("Expected an 8 MiB attachment limit")
-        } catch {
-            XCTAssertTrue(error.localizedDescription.contains("8 MiB"))
-        }
-        XCTAssertTrue(try names(in: archiveRoot.appendingPathComponent("Attachments")).isEmpty)
+        let bytes = Data(repeating: 0x61, count: 8 * 1_024 * 1_024 + 1)
+        try bytes.write(to: source)
+        let attachment = try await archive.importFile(source)
+        XCTAssertEqual(attachment.byteCount, bytes.count)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: attachment.localURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        await archive.removeMedia(attachment)
     }
 
     func testImageArchiveStillKeepsOriginalBytesAndAddsByteCount() async throws {
