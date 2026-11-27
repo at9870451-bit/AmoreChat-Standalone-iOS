@@ -14,6 +14,8 @@ final class BackendAuthStore {
     private(set) var user: BackendUser?
     private(set) var publicConfig: BackendPublicConfig?
     private(set) var ledger: BackendLedgerPage?
+    private(set) var serverModels: [BackendServerModel] = []
+    private(set) var serverModelsError: String?
     private(set) var doingNetworkWork = false
     private(set) var errorText: String?
     private(set) var ledgerError: String?
@@ -53,6 +55,7 @@ final class BackendAuthStore {
     }
 
     var isSignedIn: Bool { phase == .signedIn }
+    var currentAccessToken: String? { accessToken }
 
     var displayUsername: String { user?.username ?? "" }
 
@@ -70,6 +73,7 @@ final class BackendAuthStore {
             accessToken = stored
             user = profile
             phase = .signedIn
+            Task { await loadServerModels() }
         } catch let error as BackendError where error.isUnauthorized {
             BackendTokenKeychain.remove()
             accessToken = nil
@@ -122,7 +126,7 @@ final class BackendAuthStore {
         user = response.user
         phase = .signedIn
         errorText = nil
-        Task { await loadPublicConfig() }
+        Task { await loadPublicConfig(); await loadServerModels() }
     }
 
     func logout() {
@@ -146,6 +150,22 @@ final class BackendAuthStore {
             logout()
         } catch {
             errorText = userMessage(error)
+        }
+    }
+
+    func loadServerModels() async {
+        guard let token = accessToken else {
+            serverModels = []
+            serverModelsError = isTestMode ? "当前为界面测试模式，没有真实服务器模型。" : nil
+            return
+        }
+        do {
+            serverModels = try await client.serverModels(token: token)
+            serverModelsError = nil
+        } catch let error as BackendError where error.isUnauthorized {
+            logout()
+        } catch {
+            serverModelsError = userMessage(error)
         }
     }
 
