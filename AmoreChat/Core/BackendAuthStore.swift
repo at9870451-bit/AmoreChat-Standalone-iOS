@@ -131,6 +131,8 @@ final class BackendAuthStore {
         user = nil
         ledger = nil
         ledgerError = nil
+        serverModels = []
+        serverModelsError = nil
         phase = .signedOut
         errorText = nil
     }

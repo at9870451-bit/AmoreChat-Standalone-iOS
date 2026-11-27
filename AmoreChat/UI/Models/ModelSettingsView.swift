@@ -20,7 +20,7 @@ struct ModelSettingsView: View {
 
     var body: some View {
         Group {
-            if catalog.profiles.isEmpty {
+            if catalog.profiles.isEmpty && backend.serverModels.isEmpty {
                 ContentUnavailableView {
                     Label("尚未配置模型", systemImage: "cpu")
                 } description: {
@@ -37,6 +37,27 @@ struct ModelSettingsView: View {
                 }
             } else {
                 List {
+                    if backend.isSignedIn {
+                        Section {
+                            if backend.isTestMode {
+                                Text("界面测试模式不连接真实服务器模型。")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            } else if let message = backend.serverModelsError {
+                                Text(message).font(.footnote).foregroundStyle(.red)
+                            } else if backend.serverModels.isEmpty {
+                                Text("管理员尚未在服务器添加可用模型。你也可以继续使用下方自己的 API。")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            } else {
+                                ForEach(backend.serverModels) { model in
+                                    serverRow(model)
+                                }
+                            }
+                        } header: {
+                            Text("服务器 API")
+                        } footer: {
+                            Text("由管理后台聚合多个外部接口；使用服务器模型时按真实用量扣减账户 token，上游密钥不会下发到 App。")
+                        }
+                    }
                     Section("当前使用") {
                         if let current = catalog.active {
                             Label {
@@ -57,13 +78,18 @@ struct ModelSettingsView: View {
                     }
 
                     Section {
-                        ForEach(catalog.profiles) { profile in
-                            profileRow(profile)
+                        if catalog.profiles.isEmpty {
+                            Text("尚未添加自己的模型配置。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else {
+                            ForEach(catalog.profiles.filter { $0.provider != .amoreServer }) { profile in
+                                profileRow(profile)
+                            }
                         }
                     } header: {
-                        Text("已保存的模型")
+                        Text("以自己的 API 连接")
                     } footer: {
-                        Text("密钥由本机 Keychain 保存。请求直接发送到所填的 HTTPS 地址，服务商与模型可用性以实际请求为准。")
+                        Text("自己的 API 密钥由本机 Keychain 保存，请求直接发送到所填的 HTTPS 地址；这类请求不扣服务器 token。")
                     }
 
                     if controller.isGenerating {
@@ -99,7 +125,10 @@ struct ModelSettingsView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { adInset }
-        .task { await backend.loadPublicConfig() }
+        .task {
+            await backend.loadPublicConfig()
+            await backend.loadServerModels()
+        }
         .sheet(item: $editor) { request in
             NavigationStack {
                 ModelEditorView(controller: controller, catalog: catalog, existing: request.profile)
@@ -134,6 +163,41 @@ struct ModelSettingsView: View {
                     .background(.ultraThinMaterial)
             }
         }
+    }
+
+    private func serverRow(_ model: BackendServerModel) -> some View {
+        let active = catalog.active?.provider == .amoreServer && catalog.active?.modelID == String(model.id)
+        return Button {
+            guard !controller.isGenerating else { return }
+            catalog.activateServerModel(model)
+            controller.refreshBackend()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "server.rack")
+                    .foregroundStyle(ChatTheme.accent)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.label).font(.body.weight(.medium)).foregroundStyle(.primary)
+                    Text("\(model.provider) · \(model.model)").font(.subheadline)
+                        .foregroundStyle(.secondary).lineLimit(2)
+                    Text(model.supportsThinking ? "服务器额度 · 支持思考参数" : "服务器额度")
+                        .font(.caption2).foregroundStyle(ChatTheme.muted)
+                }
+                Spacer(minLength: 0)
+                if active {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(ChatTheme.accent)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(controller.isGenerating)
+        .accessibilityLabel("选择服务器模型 \(model.label)，使用服务器 token 额度")
+        .accessibilityValue(active ? "当前使用" : "未选择")
+        .accessibilityIdentifier("model.server.\(model.id)")
     }
 
     private func profileRow(_ profile: ModelProfile) -> some View {
@@ -172,10 +236,12 @@ struct ModelSettingsView: View {
             .accessibilityIdentifier("model.select.\(profile.id.uuidString)")
 
             Menu {
-                Button {
-                    editor = EditorRequest(profile: profile)
-                } label: {
-                    Label("编辑配置", systemImage: "pencil")
+                if profile.provider != .amoreServer {
+                    Button {
+                        editor = EditorRequest(profile: profile)
+                    } label: {
+                        Label("编辑配置", systemImage: "pencil")
+                    }
                 }
                 Button(role: .destructive) {
                     removalID = profile.id

@@ -49,7 +49,7 @@ struct ModelEditorView: View {
             }
             Section {
                 Picker("服务商", selection: $provider) {
-                    ForEach(ModelProvider.allCases, id: \.self) { item in
+                    ForEach(ModelProvider.editorCases, id: \.self) { item in
                         Text(item.displayName).tag(item)
                     }
                 }

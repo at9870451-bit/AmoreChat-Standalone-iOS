@@ -2,7 +2,7 @@ import Foundation
 
 /// Metadata only. API keys are never encoded into this type or UserDefaults.
 enum ModelProvider: String, Codable, CaseIterable, Sendable {
-    case deepSeek, openAI, openRouter, custom
+    case deepSeek, openAI, openRouter, custom, amoreServer
 
     var displayName: String {
         switch self {
@@ -10,6 +10,7 @@ enum ModelProvider: String, Codable, CaseIterable, Sendable {
         case .openAI: "OpenAI"
         case .openRouter: "OpenRouter"
         case .custom: "OpenAI 兼容接口"
+        case .amoreServer: "AmoreChat 服务器 API"
         }
     }
 
@@ -19,9 +20,12 @@ enum ModelProvider: String, Codable, CaseIterable, Sendable {
         case .openAI: "https://api.openai.com"
         case .openRouter: "https://openrouter.ai/api"
         case .custom: ""
+        case .amoreServer: BackendConfig.apiURL("api/v1/ai").absoluteString
         }
     }
     var defaultAppendV1: Bool { self == .openAI || self == .openRouter }
+    var isServer: Bool { self == .amoreServer }
+    static var editorCases: [ModelProvider] { [.deepSeek, .openAI, .openRouter, .custom] }
 }
 
 enum ModelAPIFormat: String, Codable, CaseIterable, Sendable {
@@ -64,6 +68,7 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
         case .openAI where apiHost == "api.openai.com": .reasoningEffort
         case .openRouter where apiHost == "openrouter.ai": .openRouterReasoning
         case .custom: compatibleThinking
+        case .amoreServer: compatibleThinking
         default: nil
         }
     }
@@ -71,6 +76,7 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var allowsThinking: Bool { thinkingProtocol != nil }
 
     var allowsWebSearch: Bool {
+        guard provider != .amoreServer else { return false }
         guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1) else { return false }
         if provider == .custom { return compatibleWebSearch == true }
         return provider == .openRouter && apiHost == "openrouter.ai"

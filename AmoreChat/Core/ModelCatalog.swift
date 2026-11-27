@@ -54,6 +54,28 @@ import Security
         activeID = id
         persist()
     }
+
+    /// A server model is metadata only: the credential is the account JWT, never stored here.
+    func activateServerModel(_ remote: BackendServerModel) {
+        var profile = profiles.first(where: {
+            $0.provider == .amoreServer && $0.modelID == String(remote.id)
+        }) ?? ModelProfile(label: remote.label, provider: .amoreServer,
+                           baseURL: BackendConfig.apiURL("api/v1/ai").absoluteString,
+                           modelID: String(remote.id), appendV1: false)
+        profile.label = remote.label
+        profile.baseURL = BackendConfig.apiURL("api/v1/ai").absoluteString
+        profile.modelID = String(remote.id)
+        profile.appendV1 = false
+        profile.compatibleThinking = remote.supportsThinking ? .reasoningEffort : nil
+        profile.compatibleWebSearch = false
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+        activeID = profile.id
+        persist()
+    }
     func apiKey(for id: UUID) -> String? { secrets.read(for: id) }
 
     func fetchModels(for profile: ModelProfile, apiKey: String) async throws -> [String] {

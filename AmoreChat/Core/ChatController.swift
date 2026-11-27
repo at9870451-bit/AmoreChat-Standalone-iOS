@@ -110,6 +110,13 @@ import Observation
         refreshBackend()
     }
 
+    func setServerAccessToken(_ token: String?) {
+        guard serverAccessToken != token else { return }
+        serverAccessToken = token
+        guard !injectedBackend else { return }
+        if catalog.active?.provider == .amoreServer { refreshBackend() }
+    }
+
     func load() async {
         defer { isLoading = false }
         do {

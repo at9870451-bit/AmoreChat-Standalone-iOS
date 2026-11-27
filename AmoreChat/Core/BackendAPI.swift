@@ -164,6 +164,12 @@ actor BackendClient {
         try await send("/api/v1/public/config", method: "GET", token: nil, as: BackendPublicConfig.self)
     }
 
+    func serverModels(token: String) async throws -> [BackendServerModel] {
+        let result = try await send("/api/v1/ai/models", method: "GET", token: token,
+                                    as: BackendServerModelList.self)
+        return result.data
+    }
+
     func ledger(token: String, page: Int = 0, size: Int = 20) async throws -> BackendLedgerPage {
         try await send("/api/v1/tokens/ledger?page=\(page)&size=\(size)",
                        method: "GET", token: token, as: BackendLedgerPage.self)

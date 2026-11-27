@@ -165,7 +165,17 @@ struct RootView: View {
         .task {
             // Make the user-managed destination available in Files on first launch.
             await Task.detached(priority: .utility) { _ = try? ImportFolder.directory() }.value
+            controller.setServerAccessToken(backend.currentAccessToken)
+            await backend.loadServerModels()
             applyBackendLimits()
+        }
+        .onChange(of: backend.currentAccessToken) { _, token in
+            controller.setServerAccessToken(token)
+        }
+        .onChange(of: controller.isGenerating) { wasGenerating, isGenerating in
+            if wasGenerating && !isGenerating && !backend.isTestMode {
+                Task { await backend.refreshUser() }
+            }
         }
         .onChange(of: backend.publicConfig) { _, _ in applyBackendLimits() }
         .onAppear {
