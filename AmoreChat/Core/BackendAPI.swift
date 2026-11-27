@@ -92,6 +92,19 @@ struct BackendChatSummary: Decodable, Sendable {
     let updatedAt: String
 }
 
+struct BackendServerModel: Decodable, Identifiable, Sendable, Equatable {
+    let id: Int64
+    let label: String
+    let model: String
+    let provider: String
+    let supportsThinking: Bool
+    let maxOutputTokens: Int
+}
+
+private struct BackendServerModelList: Decodable, Sendable {
+    let data: [BackendServerModel]
+}
+
 enum BackendError: LocalizedError, Sendable {
     case network
     case invalidResponse
