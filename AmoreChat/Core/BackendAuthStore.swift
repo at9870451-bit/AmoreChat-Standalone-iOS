@@ -203,28 +203,7 @@ final class BackendAuthStore {
         }
     }
 
-    func syncCurrentSession(_ session: ChatSession) async throws -> BackendChatSummary {
-        guard let token = accessToken else {
-            throw BackendError.unauthorized
-        }
-        let messages = session.messages
-            .filter { $0.status != .streaming && ($0.content.isEmpty == false || ($0.reasoning ?? "").isEmpty == false) }
-            .map { message in
-                BackendChatMessage(role: message.role == .user ? "user" : "assistant",
-                                   content: message.content,
-                                   reasoning: message.reasoning?.isEmpty == true ? nil : message.reasoning,
-                                   createdAt: Self.isoString(message.createdAt))
-            }
-        do {
-            let result = try await client.syncChat(token: token, clientId: session.id.uuidString,
-                                                   title: session.title, messages: messages)
-            await refreshUser()
-            return result
-        } catch let error as BackendError where error.isUnauthorized {
-            logout()
-            throw error
-        }
-    }
+
 
     nonisolated static func tokenText(_ value: Int64) -> String {
         let formatter = NumberFormatter()

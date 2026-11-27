@@ -167,7 +167,6 @@ struct RootView: View {
             await Task.detached(priority: .utility) { _ = try? ImportFolder.directory() }.value
             controller.setServerAccessToken(backend.currentAccessToken)
             await backend.loadServerModels()
-            applyBackendLimits()
         }
         .onChange(of: backend.currentAccessToken) { _, token in
             controller.setServerAccessToken(token)
@@ -177,7 +176,6 @@ struct RootView: View {
                 Task { await backend.refreshUser() }
             }
         }
-        .onChange(of: backend.publicConfig) { _, _ in applyBackendLimits() }
         .onAppear {
             speech.onCompletion = { [weak controller, weak speech] text in
                 guard let controller, !text.isEmpty else { return }
@@ -272,11 +270,6 @@ struct RootView: View {
         speechPermissionTask?.cancel()
         speechPermissionTask = nil
         speech.cancel()
-    }
-
-    private func applyBackendLimits() {
-        let limits = backend.publicConfig.map(BackendUploadLimits.init) ?? .fallback
-        controller.setUploadLimits(fileBytes: limits.fileBytes, imageBytes: limits.imageBytes)
     }
 
     private func setSidebar(_ open: Bool) {

@@ -29,7 +29,7 @@ actor ChatArchive {
     }
 
     func importFile(_ source: URL, preferredName: String? = nil,
-                    maxBytes: Int = 8 * 1_024 * 1_024) throws -> ChatAttachment {
+                    maxBytes: Int = .max) throws -> ChatAttachment {
         try FileManager.default.createDirectory(at: mediaURL, withIntermediateDirectories: true)
         let id = UUID()
         let sourceName = source.lastPathComponent
@@ -38,7 +38,7 @@ actor ChatArchive {
         let safeExtension = source.pathExtension.lowercased()
         let destination = mediaURL.appendingPathComponent(id.uuidString)
             .appendingPathExtension(safeExtension.isEmpty ? "bin" : safeExtension)
-        let byteCount = try LocalDocumentImport.copy(source, to: destination, maxBytes: 8 * 1_024 * 1_024)
+        let byteCount = try LocalDocumentImport.copy(source, to: destination, maxBytes: maxBytes)
         let type = UTType(filenameExtension: safeExtension)?.preferredMIMEType ?? "application/octet-stream"
         return ChatAttachment(id: id, name: displayName, localURL: destination, type: type, byteCount: byteCount)
     }

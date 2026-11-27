@@ -5,8 +5,6 @@ import UIKit
 struct BackendAccountView: View {
     @Bindable var controller: ChatController
     @Environment(BackendAuthStore.self) private var backend
-    @State private var isSyncing = false
-    @State private var syncMessage: String?
     @State private var showsLogout = false
 
     var body: some View {
@@ -15,7 +13,7 @@ struct BackendAccountView: View {
                 profileCard
                 quotaCard
                 inviteCard
-                cloudHistoryCard
+                localOnlyCard
                 ledgerCard
                 if backend.isTestMode {
                     Text("当前是界面测试模式，未连接真实云端账户。")
@@ -136,44 +134,6 @@ struct BackendAccountView: View {
         }
     }
 
-    private var cloudHistoryCard: some View {
-        accountCard {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack {
-                    Text("云端聊天历史").font(.footnote).foregroundStyle(ChatTheme.muted)
-                    Spacer()
-                    if let config = backend.publicConfig {
-                        Text("上限 \(config.maxHistoryMessages) 条 · \(config.maxHistoryChars) 字")
-                            .font(.caption2).foregroundStyle(ChatTheme.muted)
-                    }
-                }
-                Text("同步会按后台设置的消息数、字符数和会话数上限校验；不会自动伪造云端历史。")
-                    .font(.caption2).foregroundStyle(ChatTheme.muted)
-                Button {
-                    Task { await syncCurrentSession() }
-                } label: {
-                    HStack {
-                        if isSyncing { ProgressView().controlSize(.small) }
-                        Text(isSyncing ? "正在同步…" : "同步当前会话")
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 34)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(ChatTheme.accent)
-                .disabled(isSyncing || controller.isGenerating || controller.currentID == nil || backend.isTestMode)
-                .accessibilityIdentifier("account.syncCurrent")
-                if controller.currentID == nil {
-                    Text("当前没有可同步的会话。").font(.caption2).foregroundStyle(ChatTheme.muted)
-                }
-                if let syncMessage {
-                    Text(syncMessage)
-                        .font(.caption2)
-                        .foregroundStyle(syncMessage.hasPrefix("失败") ? .red : ChatTheme.muted)
-                }
-            }
-        }
-    }
-
     private var ledgerCard: some View {
         accountCard {
             VStack(alignment: .leading, spacing: 8) {
@@ -233,30 +193,6 @@ struct BackendAccountView: View {
         case "AI_USAGE": return "模型 token 用量"
         case "ADMIN_ADJUST": return "管理员调整"
         default: return reason
-        }
-    }
-
-    @MainActor
-    private func syncCurrentSession() async {
-        guard let id = controller.currentID,
-              let session = controller.sessions.first(where: { $0.id == id }) else {
-            syncMessage = "失败：当前没有可同步的会话。"
-            return
-        }
-        guard !session.messages.isEmpty else {
-            syncMessage = "失败：空会话无需同步。"
-            return
-        }
-        isSyncing = true
-        syncMessage = nil
-        defer { isSyncing = false }
-        do {
-            let result = try await backend.syncCurrentSession(session)
-            syncMessage = "成功：已同步 \(result.messageCount) 条消息（\(result.charCount) 字）。"
-            await backend.refreshUser()
-            await backend.loadLedger()
-        } catch {
-            syncMessage = "失败：\((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)"
         }
     }
 }

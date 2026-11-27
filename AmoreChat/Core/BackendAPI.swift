@@ -83,14 +83,6 @@ struct BackendChatSyncRequest: Encodable, Sendable {
     let messages: [BackendChatMessage]
 }
 
-struct BackendChatSummary: Decodable, Sendable {
-    let clientId: String
-    let title: String
-    let messageCount: Int
-    let charCount: Int
-    let createdAt: String
-    let updatedAt: String
-}
 
 struct BackendServerModel: Decodable, Identifiable, Sendable, Equatable {
     let id: Int64
@@ -188,12 +180,6 @@ actor BackendClient {
                        method: "GET", token: token, as: BackendLedgerPage.self)
     }
 
-    func syncChat(token: String, clientId: String, title: String,
-                  messages: [BackendChatMessage]) async throws -> BackendChatSummary {
-        let path = "/api/v1/chats/\(clientId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? clientId)"
-        let body = BackendChatSyncRequest(title: title, messages: messages)
-        return try await send(path, method: "PUT", body: body, token: token, as: BackendChatSummary.self)
-    }
 
     private func send<T: Decodable>(_ path: String, method: String, token: String?,
                                     as type: T.Type) async throws -> T {

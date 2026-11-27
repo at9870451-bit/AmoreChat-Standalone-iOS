@@ -44,8 +44,8 @@ import Observation
     private(set) var completedReplyText: String?
     private(set) var isImporting = false
     private(set) var isAttachingFile = false
-    private(set) var uploadFileLimitBytes: Int64 = 8 * 1024 * 1024
-    private(set) var uploadImageLimitBytes: Int64 = 10 * 1024 * 1024
+    private(set) var uploadFileLimitBytes: Int64 = .max
+    private(set) var uploadImageLimitBytes: Int64 = .max
     var errorText: String?
     private(set) var serverAccessToken: String?
     var backendReady: Bool { backend.isConfigured }
@@ -249,10 +249,7 @@ import Observation
         }
     }
 
-    func setUploadLimits(fileBytes: Int64, imageBytes: Int64) {
-        uploadFileLimitBytes = max(1_024, min(fileBytes, 64 * 1024 * 1024))
-        uploadImageLimitBytes = max(1_024, min(imageBytes, 32 * 1024 * 1024))
-    }
+
 
     func attach(_ url: URL) async {
         guard !isLoading, !isGenerating, !isImporting, !isAttachingFile else { return }
