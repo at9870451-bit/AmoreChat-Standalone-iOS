@@ -41,7 +41,6 @@ struct BackendAuthView: View {
                                 .padding(.top, 14)
                                 .accessibilityIdentifier("auth.retry")
                         }
-                        securityNote.padding(.top, 25)
                     }
                     .padding(.horizontal, 21)
                     .padding(.top, 8)
@@ -286,29 +285,6 @@ struct BackendAuthView: View {
         .padding(12)
         .background(Color.red.opacity(0.10), in: RoundedRectangle(cornerRadius: 13))
         .accessibilityIdentifier("auth.error")
-    }
-
-    private var securityNote: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 13) {
-                Rectangle().fill(ink.opacity(0.18)).frame(height: 0.6).frame(maxWidth: .infinity)
-                Image(systemName: "checkmark.shield")
-                    .font(.system(size: 14))
-                    .accessibilityHidden(true)
-                Text("安全加密 · BCrypt · Keychain")
-                    .font(.system(size: 11))
-                    .fixedSize(horizontal: true, vertical: false)
-                Rectangle().fill(ink.opacity(0.18)).frame(height: 0.6).frame(maxWidth: .infinity)
-            }
-            Text("密码仅在传输时使用，服务器保存 BCrypt 哈希，\n登录令牌保存在本机 Keychain。")
-                .font(.system(size: 10.5))
-                .lineSpacing(4)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .foregroundStyle(ink)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("auth.security")
     }
 
     private var canSubmit: Bool {
