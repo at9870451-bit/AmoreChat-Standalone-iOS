@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [chat, dark, light, files18]
+        suite: [auth, chat, dark, light, files18]
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +53,8 @@ jobs:
         run: |
           set -euo pipefail
           case "$SUITE" in
-            chat) style=light; filters=(-skip-testing:AmoreChatStandaloneUITests/AppearanceUITests -skip-testing:AmoreChatStandaloneUITests/DocumentPickerUITests/testPickChatFileAndHistoryZIP) ;;
+            auth) style=dark; filters=(-only-testing:AmoreChatStandaloneUITests/AuthUITests) ;;
+            chat) style=light; filters=(-skip-testing:AmoreChatStandaloneUITests/AuthUITests -skip-testing:AmoreChatStandaloneUITests/AppearanceUITests -skip-testing:AmoreChatStandaloneUITests/DocumentPickerUITests/testPickChatFileAndHistoryZIP) ;;
             files18) style=light; filters=(-only-testing:AmoreChatStandaloneUITests/DocumentPickerUITests/testPickChatFileAndHistoryZIP) ;;
             dark) style=dark; filters=(-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstDarkSystem) ;;
             light) style=light; filters=(-only-testing:AmoreChatStandaloneUITests/AppearanceUITests/testAgainstLightSystem) ;;

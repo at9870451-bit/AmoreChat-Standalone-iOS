@@ -84,6 +84,11 @@ final class BackendAuthStore {
         }
     }
 
+    func clearSignInError() {
+        guard !doingNetworkWork else { return }
+        errorText = nil
+    }
+
     func retryConnection() async {
         guard !isTestMode else { return }
         phase = .checking

@@ -4,6 +4,8 @@
 
 ## 当前可用
 
+- 0.5.5 登录/注册页采用用户提供的鲸鱼主视觉、黑蓝球体背景、玻璃质感真实输入框和蓝色胶囊主按钮。注册额外要求邀请码，保留密码显隐、错误提示、键盘滚动、真实账户 API 与 Keychain 登录令牌；不打包整张参考截图、状态栏或模拟账号数据。该认证画面固定深色，登录后的聊天页仍遵循用户外观设置。
+
 - 按用户四张参考图重排原生白底/深色蓝点缀：居中欢迎语、左抽屉、双图标顶栏、胶囊输入与拍照/相册/文件展开态、分组设置页。抽屉、新建/搜索实际消息内容/切换/重命名/置顶/删除会话与确认操作。
 - Application Support 目录中的本地 JSON 会话库（原子写入）、各会话草稿，以及沙盒中的图片/文件附件；使用系统相机、PhotosPicker、Files 导入和 Speech 框架语音转文字。模型请求支持 JPEG/PNG/WebP/GIF，HEIC 安全转 JPEG，可提取文字的 PDF 和 UTF-8 文本；本地附件不再受服务器上传限制；图片 HEIC 转 JPEG 后按所选模型能力发送。
 - 用户/助手左右排版，AI 回复无会话头像；紧凑可折叠思考过程，灰色用户气泡和原生 Markdown/代码高亮/表格/有限离线 MathML。输入区在空白与编辑状态共用语音／发送圆键；生成中独立停止键和加号、语音键并排。点语音圆键切换到按住听写，实时显示系统回传的文字，松手后只填入草稿，不自动发送。聊天页轻点空白可收键盘。
@@ -21,7 +23,7 @@
 
 ## 构建
 
-需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.4`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
+需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.5`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
 
 项目结构：`AmoreChat/App.swift` App 入口与导航；`Core/ChatModels.swift` 数据与后端协议；`Core/ChatController.swift` 状态与流式生命周期；`Core/ChatArchive.swift` 本地原子持久化；`Core/SpeechInput.swift` 原生语音服务；`UI/` 全部独立 SwiftUI 组件。原创应用图标由 `scripts/make_icon.py` 生成。
 
