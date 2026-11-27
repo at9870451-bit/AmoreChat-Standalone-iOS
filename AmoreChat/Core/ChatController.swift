@@ -47,6 +47,7 @@ import Observation
     private(set) var uploadFileLimitBytes: Int64 = 8 * 1024 * 1024
     private(set) var uploadImageLimitBytes: Int64 = 10 * 1024 * 1024
     var errorText: String?
+    private(set) var serverAccessToken: String?
     var backendReady: Bool { backend.isConfigured }
     var selectedModelName: String? { injectedBackend ? injectedModelName : catalog.active?.label }
     var supportsThinking: Bool { backendReady && backend.supportsThinking }
@@ -79,7 +80,13 @@ import Observation
         guard !injectedBackend else { return }
         guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
         let profile = catalog.active
-        if let profile, let key = catalog.apiKey(for: profile.id), !key.isEmpty {
+        if let profile, profile.provider == .amoreServer {
+            if let token = serverAccessToken, !token.isEmpty {
+                backend = OpenAICompatibleBackend(profile: profile, apiKey: token)
+            } else {
+                backend = UnconfiguredBackend()
+            }
+        } else if let profile, let key = catalog.apiKey(for: profile.id), !key.isEmpty {
             backend = OpenAICompatibleBackend(profile: profile, apiKey: key)
         } else {
             backend = UnconfiguredBackend()
