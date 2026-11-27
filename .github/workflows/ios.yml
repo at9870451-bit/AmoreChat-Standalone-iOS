@@ -27,14 +27,14 @@ jobs:
         run: |
           mkdir -p Payload
           ditto "$RUNNER_TEMP/amorechat-device/Build/Products/Release-iphoneos/AmoreChatStandalone.app" Payload/AmoreChatStandalone.app
-          zip -qry AmoreChat-Standalone-0.5.3-unsigned.ipa Payload
-          unzip -tq AmoreChat-Standalone-0.5.3-unsigned.ipa
-          shasum -a 256 AmoreChat-Standalone-0.5.3-unsigned.ipa > SHA256.txt
+          zip -qry AmoreChat-Standalone-0.5.4-unsigned.ipa Payload
+          unzip -tq AmoreChat-Standalone-0.5.4-unsigned.ipa
+          shasum -a 256 AmoreChat-Standalone-0.5.4-unsigned.ipa > SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
           name: standalone-ios-unsigned
           path: |
-            AmoreChat-Standalone-0.5.3-unsigned.ipa
+            AmoreChat-Standalone-0.5.4-unsigned.ipa
             SHA256.txt
           if-no-files-found: error
           retention-days: 30
