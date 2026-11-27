@@ -15,9 +15,6 @@ struct DeepSeekImportZIP {
         let name: Data
     }
 
-    static let maxArchive = 64 * 1_024 * 1_024
-    static let maxExpanded = 128 * 1_024 * 1_024
-    static let maxEntry = 8 * 1_024 * 1_024
     static let maxEntries = 4_096
     private let bytes: Data
     let entries: [Entry]
@@ -25,11 +22,10 @@ struct DeepSeekImportZIP {
 
     init(url: URL) throws {
         let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        guard let size = attributes[.size] as? NSNumber, size.int64Value <= Self.maxArchive else {
-            throw DeepSeekImportError.unsafeArchive("压缩包超过 64 MiB 上限")
+        guard let size = attributes[.size] as? NSNumber, size.int64Value >= 0 else {
+            throw DeepSeekImportError.unsafeArchive("无法读取压缩包大小")
         }
         let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        guard data.count <= Self.maxArchive else { throw DeepSeekImportError.unsafeArchive("文件过大") }
         bytes = data
         guard data.count >= 22 else { throw DeepSeekImportError.invalidZIP }
         let tail = max(0, data.count - 22 - 65_535)
@@ -59,13 +55,13 @@ struct DeepSeekImportZIP {
             let compressed = Int(data.u32(cursor + 20)), expanded = Int(data.u32(cursor + 24))
             let offset = Int(data.u32(cursor + 42))
             guard compressed != Int(UInt32.max), expanded != Int(UInt32.max),
-                  compressed <= Self.maxArchive, expanded <= Self.maxEntry,
                   compressed <= data.count, method != 0 || compressed == expanded,
                   offset < centralStart else {
                 throw DeepSeekImportError.unsafeArchive("条目过大或 ZIP64 不受支持")
             }
-            total += expanded
-            guard total <= Self.maxExpanded else { throw DeepSeekImportError.unsafeArchive("解压总量超过 128 MiB") }
+            let sum = total.addingReportingOverflow(expanded)
+            guard !sum.overflow else { throw DeepSeekImportError.unsafeArchive("解压总量过大") }
+            total = sum.partialValue
             guard expanded <= compressed * 250 + 1_024 else {
                 throw DeepSeekImportError.unsafeArchive("疑似 ZIP 炸弹（压缩比过高）")
             }

@@ -68,7 +68,7 @@ enum LocalDocumentImport {
         }
         defer { try? manager.removeItem(at: staging) }
         let archive = staging.appendingPathComponent("history.zip")
-        try copy(source, to: archive, maxBytes: DeepSeekImportZIP.maxArchive)
+        try copy(source, to: archive, maxBytes: Int.max)
         try Task.checkCancellation()
         return try DeepSeekImport.parse(archive)
     }

@@ -128,7 +128,6 @@ struct OpenAICompatibleBackend: ChatBackend {
         }
         var text = message.content
         var images = [[String: Any]]()
-        var totalBytes = 0
         for attachment in message.attachments {
             try Task.checkCancellation()
             guard attachment.localURL.isFileURL else { throw AdapterError.unsupportedAttachment }
@@ -139,16 +138,10 @@ struct OpenAICompatibleBackend: ChatBackend {
             let suffix = attachment.localURL.pathExtension.lowercased()
             guard imageTypes.contains(mime) || textTypes.contains(mime) || sourceSuffixes.contains(suffix)
             else { throw AdapterError.unsupportedAttachment }
-            // Check the file size before allocating memory, then check again against races.
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: attachment.localURL.path),
-                  let size = attributes[.size] as? NSNumber, size.int64Value >= 0,
-                  size.int64Value <= 8 * 1_024 * 1_024,
-                  totalBytes + size.intValue <= 8 * 1_024 * 1_024,
-                  let bytes = try? Data(contentsOf: attachment.localURL, options: .mappedIfSafe),
-                  !bytes.isEmpty, bytes.count <= 8 * 1_024 * 1_024,
-                  totalBytes + bytes.count <= 8 * 1_024 * 1_024
+            // No app-side size ceiling: the device and the chosen provider decide how large a request can be.
+            guard let bytes = try? Data(contentsOf: attachment.localURL, options: .mappedIfSafe),
+                  !bytes.isEmpty
             else { throw AdapterError.attachmentReadFailure }
-            totalBytes += bytes.count
             if imageTypes.contains(mime) {
                 let uploadBytes: Data
                 let uploadType: String
@@ -160,8 +153,7 @@ struct OpenAICompatibleBackend: ChatBackend {
                           width > 0, height > 0, width <= 8192, height <= 8192,
                           width * height <= 25_000_000,
                           let image = UIImage(data: bytes),
-                          let converted = image.jpegData(compressionQuality: 0.82),
-                          converted.count <= 8 * 1_024 * 1_024 else {
+                          let converted = image.jpegData(compressionQuality: 0.82) else {
                         throw AdapterError.unsupportedAttachment
                     }
                     uploadBytes = converted; uploadType = "image/jpeg"
@@ -174,9 +166,8 @@ struct OpenAICompatibleBackend: ChatBackend {
                 let content: String
                 if mime == "application/pdf" {
                     guard bytes.starts(with: Array("%PDF-".utf8)),
-                          let document = PDFDocument(data: bytes), document.pageCount <= 100,
-                          let extracted = document.string, !extracted.isEmpty,
-                          extracted.count <= 60_000 else { throw AdapterError.unsupportedAttachment }
+                          let document = PDFDocument(data: bytes),
+                          let extracted = document.string, !extracted.isEmpty else { throw AdapterError.unsupportedAttachment }
                     content = extracted
                 } else {
                     guard let decoded = String(data: bytes, encoding: .utf8), !decoded.contains("\0")
@@ -311,7 +302,7 @@ private enum AdapterError: LocalizedError {
         case .emptyConversation: "请先输入消息。"
         case .invalidRequest: "请求内容过大或格式无效。"
         case .unsupportedAttachment: "附件不兼容：支持常见图片、UTF-8 文本或可提取文字的 PDF。扫描 PDF、Office 或加密文件暂不支持。"
-        case .attachmentReadFailure: "附件读取失败或超过 8 MB 总限制。"
+        case .attachmentReadFailure: "附件读取失败；大小最终由设备内存与所选模型服务限制决定。"
         case .unsupportedWebSearch: "当前模型未配置网页搜索协议；请选用 OpenRouter、按服务商文档配置兼容协议，或关闭搜索。"
         case .unsupportedThinking: "自定义服务商未声明思考模式协议；请关闭深度思考。"
         case .http(let code): "模型服务返回 HTTP \(code)；请检查服务地址、模型和授权。"
