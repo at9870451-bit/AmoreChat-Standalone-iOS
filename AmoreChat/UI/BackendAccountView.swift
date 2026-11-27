@@ -134,6 +134,24 @@ struct BackendAccountView: View {
         }
     }
 
+    private var localOnlyCard: some View {
+        accountCard {
+            VStack(alignment: .leading, spacing: 9) {
+                Text("聊天记录与附件").font(.footnote).foregroundStyle(ChatTheme.muted)
+                Label {
+                    Text("会话、文件和照片只保存在本机")
+                        .font(.caption.weight(.medium))
+                } icon: {
+                    Image(systemName: "lock.iphone").foregroundStyle(ChatTheme.accent)
+                }
+                Text("服务器不保存或留存聊天内容、附件、照片；这里只记录账户、额度和邀请。")
+                    .font(.caption2).foregroundStyle(ChatTheme.muted)
+                Text("导入或清除请在「数据管理」操作，导出的文件由你自行保存。")
+                    .font(.caption2).foregroundStyle(ChatTheme.muted)
+            }
+        }
+    }
+
     private var ledgerCard: some View {
         accountCard {
             VStack(alignment: .leading, spacing: 8) {
