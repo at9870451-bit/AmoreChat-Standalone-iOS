@@ -45,13 +45,19 @@ struct ComposerView: View {
             && !voiceMode && !speechInputActive && !controller.isGenerating && hasContent
     }
 
+    private var visibleControllerError: String? {
+        guard let error = controller.errorText, !error.isEmpty,
+              !error.hasPrefix("请求失败：") else { return nil }
+        return error
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let error = controller.errorText, !error.isEmpty {
-                errorRow(error, retry: controller.canRetry)
+            if let error = visibleControllerError {
+                errorRow(error)
             }
             if let inputError {
-                errorRow(inputError, retry: false)
+                errorRow(inputError)
             }
             if let modeNotice {
                 Label(modeNotice, systemImage: "info.circle")
@@ -473,22 +479,17 @@ struct ComposerView: View {
         .accessibilityHint("双击\(isOn ? "关闭" : "开启")\(title)")
     }
 
-    private func errorRow(_ message: String, retry: Bool) -> some View {
+    private func errorRow(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "exclamationmark.circle")
                 .accessibilityHidden(true)
             Text(message)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 2)
-            if retry {
-                Button("重试") { controller.retry() }
-                    .fontWeight(.semibold)
-            } else {
-                Button("关闭") {
-                    if inputError == message { inputError = nil }
-                    else { controller.errorText = nil }
-                }.fontWeight(.medium)
-            }
+            Button("关闭") {
+                if inputError == message { inputError = nil }
+                else { controller.errorText = nil }
+            }.fontWeight(.medium)
         }
         .font(.footnote)
         .foregroundStyle(ChatTheme.danger)
