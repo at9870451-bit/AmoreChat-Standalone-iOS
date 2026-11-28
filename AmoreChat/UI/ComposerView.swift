@@ -177,21 +177,18 @@ struct ComposerView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .padding(.bottom, max(0, bottomSafeAreaInset))
+        // A floating, four-corner composer: keep a clear gutter above the home indicator.
         .background {
-            UnevenRoundedRectangle(topLeadingRadius: 25, bottomLeadingRadius: 0,
-                                   bottomTrailingRadius: 0, topTrailingRadius: 25,
-                                   style: .continuous)
+            RoundedRectangle(cornerRadius: 29, style: .continuous)
                 .fill(ComposerColors.card)
                 .overlay {
-                    UnevenRoundedRectangle(topLeadingRadius: 25, bottomLeadingRadius: 0,
-                                           bottomTrailingRadius: 0, topTrailingRadius: 25,
-                                           style: .continuous)
+                    RoundedRectangle(cornerRadius: 29, style: .continuous)
                         .strokeBorder(ComposerColors.cardBorder, lineWidth: 0.7)
+                        .allowsHitTesting(false)
                 }
-                .ignoresSafeArea(.container, edges: .bottom)
-                .allowsHitTesting(false)
         }
+        .padding(.horizontal, 12)
+        .padding(.bottom, max(12, bottomSafeAreaInset + 10))
         .alert("联网搜索可能产生额外费用", isPresented: $confirmPaidSearch) {
             Button("开启联网搜索") {
                 guard controller.setWebSearch(true) else { return }
