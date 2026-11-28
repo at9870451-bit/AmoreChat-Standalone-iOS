@@ -67,6 +67,11 @@ enum ChatTheme {
             ? UIColor(red: 0.48, green: 0.65, blue: 0.99, alpha: 1)
             : UIColor(red: 0.20, green: 0.39, blue: 0.84, alpha: 1)
     })
+    static let thinkingBlue = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.35, green: 0.54, blue: 0.98, alpha: 1)
+            : UIColor(red: 0.19, green: 0.36, blue: 0.79, alpha: 1)
+    })
     static let accentWash = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.13, green: 0.20, blue: 0.34, alpha: 1)

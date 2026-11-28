@@ -30,7 +30,7 @@ struct DeepThinkingGlyph: View {
     var body: some View {
         Image(systemName: "atom")
             .font(.system(size: 17, weight: .regular))
-            .foregroundStyle(ChatTheme.muted)
+            .foregroundStyle(ChatTheme.thinkingBlue)
             .accessibilityHidden(true)
     }
 }

@@ -164,7 +164,7 @@ private struct MessageRow: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Button { reasoningOpen.toggle() } label: {
                             HStack(spacing: 8) {
-                                if message.thinkingRequested == true || message.reasoning?.isEmpty == false {
+                                if message.thinkingRequested == true && !isThinking {
                                     DeepThinkingGlyph()
                                 }
                                 if isThinking {
@@ -235,11 +235,8 @@ private struct MessageRow: View {
                             }
                         }
                 } else if message.status == .streaming && message.reasoning?.isEmpty != false {
-                    HStack(spacing: 8) {
-                        if message.thinkingRequested == true { DeepThinkingGlyph() }
-                        ThinkingDots()
-                    }
-                    .frame(minHeight: 37, alignment: .leading)
+                    ThinkingDots()
+                        .frame(minHeight: 37, alignment: .leading)
                 }
                 ForEach(message.attachments) { item in
                     ShareLink(item: item.localURL) { AttachmentCard(attachment: item) }

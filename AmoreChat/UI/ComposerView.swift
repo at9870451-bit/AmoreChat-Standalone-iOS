@@ -448,10 +448,12 @@ struct ComposerView: View {
                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: symbol)
-                    .font(.system(size: 16, weight: isOn ? .medium : .regular))
-                    .symbolEffect(.bounce, value: isOn && !reduceMotion)
-                    .accessibilityHidden(true)
+                if id != "thinking" || isOn {
+                    Image(systemName: symbol)
+                        .font(.system(size: 16, weight: isOn ? .medium : .regular))
+                        .symbolEffect(.bounce, value: isOn && !reduceMotion)
+                        .accessibilityHidden(true)
+                }
                 Text(title)
                     .font(.system(size: chipSize, weight: .regular))
                     .fixedSize()
@@ -529,11 +531,7 @@ private enum ComposerColors {
             ? UIColor(white: 0.20, alpha: 1)
             : UIColor(white: 0.92, alpha: 1)
     })
-    static let blue = Color(uiColor: UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.35, green: 0.54, blue: 0.98, alpha: 1)
-            : UIColor(red: 0.19, green: 0.36, blue: 0.79, alpha: 1)
-    })
+    static let blue = ChatTheme.thinkingBlue
     static let chip = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(red: 0.16, green: 0.19, blue: 0.26, alpha: 1)

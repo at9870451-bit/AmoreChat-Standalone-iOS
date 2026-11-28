@@ -4,6 +4,8 @@
 
 ## 当前可用
 
+- 0.5.8：按真机反馈调整抽屉：外层保留安全区测量，内层显式扩展容器到底部，左右面板在同一全高坐标中布局；右侧可见容器在背景和输入栏绘制之后统一裁切对角圆角。等待回复仅三个点，当前消息确实开启深度思考且思考结束后才显示蓝色 atom，不能从模型的隐式 reasoning 推断开关。输入栏深度思考图标也仅开启时显示。
+
 - 0.5.7：输入面板全宽贴底，背景延伸到 Home 指示条安全区，按钮保留安全点击高度；移除输入栏下方固定提示，AI 参考提示随消息列表滚动。抽屉预览按屏幕可见区域裁切，左上角和右下角圆角，其余角保持直角，不缩放正文。
 
 - 0.5.6：抽屉预览只平移，背景覆盖底部安全区；等待回复使用三点，深度思考标题使用与输入栏一致的 atom 图标。流式增量合并到约 30Hz、滚动节流、按秒检查点并在完成/切后台时保存，减少无关历史重排。账户页隐藏主机地址和后台技术信息；侧栏与账户可使用本机照片头像。第一次进入账户提供可跳过的头像引导，按本机账户 ID 隔离、不上传、不纳入会话导出。
@@ -29,7 +31,7 @@
 
 ## 构建
 
-需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.7`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
+需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.8`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
 
 项目结构：`AmoreChat/App.swift` App 入口与导航；`Core/ChatModels.swift` 数据与后端协议；`Core/ChatController.swift` 状态与流式生命周期；`Core/ChatArchive.swift` 本地原子持久化；`Core/SpeechInput.swift` 原生语音服务；`UI/` 全部独立 SwiftUI 组件。原创应用图标由 `scripts/make_icon.py` 生成。
 

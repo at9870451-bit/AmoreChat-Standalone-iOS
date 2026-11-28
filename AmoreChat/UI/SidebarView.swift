@@ -3,6 +3,7 @@ import SwiftUI
 /// Every row is backed by ChatController's persisted sessions, never a mock timeline.
 @MainActor struct SidebarView: View {
     @Bindable var controller: ChatController
+    var bottomSafeAreaInset: CGFloat = 0
     let onClose: () -> Void
     let onSettings: () -> Void
     let onSearch: () -> Void
@@ -51,9 +52,11 @@ import SwiftUI
             searchButton
             timeline
             profileFooter
+                .padding(.bottom, max(0, bottomSafeAreaInset))
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .foregroundStyle(ChatTheme.text)
-        .background(ChatTheme.canvas)
+        .background { ChatTheme.canvas.ignoresSafeArea(.container, edges: .bottom) }
         .sheet(isPresented: $showsAvatarEditor) {
             AvatarSetupView()
         }

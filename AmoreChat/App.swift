@@ -87,100 +87,15 @@ struct RootView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let sidebarWidth = min(340, geometry.size.width * 0.783)
-            let previewTop = sidebarOpen ? min(36, geometry.safeAreaInsets.top * 0.60) : 0
-            let previewWidth = sidebarOpen ? geometry.size.width - sidebarWidth : geometry.size.width
-            let panelShape = UnevenRoundedRectangle(
-                topLeadingRadius: sidebarOpen ? 28 : 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: sidebarOpen ? 28 : 0,
-                topTrailingRadius: 0,
-                style: .continuous)
-            ZStack(alignment: .leading) {
-                ChatTheme.canvas.ignoresSafeArea()
-                if sidebarOpen {
-                    SidebarView(controller: controller,
-                                onClose: { setSidebar(false) },
-                                onSettings: { setSidebar(false); settingsOpen = true },
-                                onSearch: {
-                                    keyboardDismissSignal &+= 1
-                                    cancelSpeech()
-                                    reader.stop()
-                                    historySearchOpen = true
-                                })
-                        .frame(width: sidebarWidth)
-                        .frame(maxHeight: .infinity)
-                        .transition(.move(edge: .leading))
-                        .zIndex(0)
-                }
-                VStack(spacing: 0) {
-                    header
-                    if controller.isLoading {
-                        ProgressView("正在读取会话…")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        TranscriptView(controller: controller,
-                                       onReadAloud: { text in
-                            guard !speech.isStarting && !speech.isRecording && !speech.isFinishing else { return }
-                            if reader.isSpeaking { reader.stop() }
-                            else { reader.read(text, voiceID: readerVoiceID) }
-                        }, onBackgroundTap: { keyboardDismissSignal &+= 1 },
-                                       forceBottomSignal: forceBottomSignal, jump: historyJump)
-                    }
-                    ComposerView(controller: controller, onVoiceModeEntered: prepareSpeech,
-                                 onInputFocus: { forceBottomSignal &+= 1 },
-                                 onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
-                                 speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
-                                 speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
-                                 speechPermissionPending: speech.requestingPermission,
-                                 dismissKeyboardSignal: keyboardDismissSignal,
-                                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom)
-                }
-                // Extend the panel, not its buttons, through the home-indicator area.
-                .frame(width: geometry.size.width, height: geometry.size.height + geometry.safeAreaInsets.bottom)
-                .padding(.top, previewTop)
-                .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
-                .mask(alignment: .topLeading) {
-                    // Mask the VISIBLE strip after opening: the lower-right corner must be
-                    // on the screen edge, not off-screen on the translated full-width view.
-                    panelShape.frame(width: previewWidth,
-                                     height: geometry.size.height + geometry.safeAreaInsets.bottom + previewTop)
-                }
-                .overlay(alignment: .topLeading) {
-                    panelShape
-                        .strokeBorder(ChatTheme.line.opacity(sidebarOpen ? 0.42 : 0), lineWidth: 0.5)
-                        .frame(width: previewWidth,
-                               height: geometry.size.height + geometry.safeAreaInsets.bottom + previewTop)
-                        .allowsHitTesting(false)
-                }
-                .allowsHitTesting(!sidebarOpen)
-                .accessibilityHidden(sidebarOpen)
-                .offset(x: sidebarOpen ? sidebarWidth : 0, y: -previewTop)
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .zIndex(1)
-                if sidebarOpen {
-                    Button { setSidebar(false) } label: {
-                        Color.clear
-                            .frame(width: geometry.size.width - sidebarWidth, height: geometry.size.height)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("关闭侧边栏")
-                    .accessibilityIdentifier("root.sidebar.close")
-                    .offset(x: sidebarWidth)
-                    .zIndex(2)
-                }
+        GeometryReader { safeGeometry in
+            GeometryReader { canvasGeometry in
+                drawerCanvas(size: canvasGeometry.size,
+                             topInset: safeGeometry.safeAreaInsets.top,
+                             bottomInset: max(0, canvasGeometry.size.height - safeGeometry.size.height))
             }
-            .simultaneousGesture(DragGesture(minimumDistance: 28)
-                .onEnded { value in
-                    guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
-                    if value.translation.width > 80 && value.startLocation.x < 32 {
-                        setSidebar(true)
-                    } else if value.translation.width < -72 && sidebarOpen {
-                        setSidebar(false)
-                    }
-                })
+            // Measure the actual container through its bottom edge. The keyboard still
+            // participates in layout; only the home-indicator container inset is ignored.
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .background { WindowAppearance(mode: appearanceMode).frame(width: 0, height: 0) }
         .environment(\.locale, language == "system" ? .current : Locale(identifier: language))
@@ -260,6 +175,102 @@ struct RootView: View {
         } message: {
             Text(speech.errorText ?? "")
         }
+    }
+
+    /// Both panels and the final corner clip use this one measured canvas.
+    /// Its bottom is the physical screen bottom (or keyboard top), never a guessed offset.
+    private func drawerCanvas(size: CGSize, topInset: CGFloat, bottomInset: CGFloat) -> some View {
+        let sidebarWidth = min(340, size.width * 0.783)
+        let fullHeight = size.height
+        let previewTop = sidebarOpen ? min(36, topInset * 0.60) : 0
+        let previewWidth = sidebarOpen ? size.width - sidebarWidth : size.width
+        let panelHeight = fullHeight + previewTop
+        let panelShape = UnevenRoundedRectangle(
+            topLeadingRadius: sidebarOpen ? 28 : 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: sidebarOpen ? 28 : 0,
+            topTrailingRadius: 0,
+            style: .continuous)
+        return ZStack(alignment: .topLeading) {
+            ChatTheme.canvas.ignoresSafeArea()
+                .frame(width: size.width, height: fullHeight)
+            if sidebarOpen {
+                SidebarView(controller: controller,
+                            bottomSafeAreaInset: bottomInset,
+                            onClose: { setSidebar(false) },
+                            onSettings: { setSidebar(false); settingsOpen = true },
+                            onSearch: {
+                                keyboardDismissSignal &+= 1
+                                cancelSpeech()
+                                reader.stop()
+                                historySearchOpen = true
+                            })
+                    .frame(width: sidebarWidth, height: fullHeight, alignment: .topLeading)
+                    .transition(.move(edge: .leading))
+                    .zIndex(0)
+            }
+            VStack(spacing: 0) {
+                header
+                if controller.isLoading {
+                    ProgressView("正在读取会话…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    TranscriptView(controller: controller,
+                                   onReadAloud: { text in
+                        guard !speech.isStarting && !speech.isRecording && !speech.isFinishing else { return }
+                        if reader.isSpeaking { reader.stop() }
+                        else { reader.read(text, voiceID: readerVoiceID) }
+                    }, onBackgroundTap: { keyboardDismissSignal &+= 1 },
+                                   forceBottomSignal: forceBottomSignal, jump: historyJump)
+                }
+                ComposerView(controller: controller, onVoiceModeEntered: prepareSpeech,
+                             onInputFocus: { forceBottomSignal &+= 1 },
+                             onSpeechStart: beginSpeech, onSpeechStop: finishSpeech,
+                             speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
+                             speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
+                             speechPermissionPending: speech.requestingPermission,
+                             dismissKeyboardSignal: keyboardDismissSignal,
+                             bottomSafeAreaInset: bottomInset)
+            }
+            .frame(width: size.width, height: fullHeight, alignment: .top)
+            .padding(.top, previewTop)
+            .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
+            // This wrapper owns the visible strip before translation. All child backgrounds
+            // (including the dock's safe-area fill) are clipped by the same final mask.
+            .frame(width: previewWidth, height: panelHeight, alignment: .topLeading)
+            .clipShape(panelShape)
+            .overlay {
+                panelShape
+                    .strokeBorder(ChatTheme.line.opacity(sidebarOpen ? 0.42 : 0), lineWidth: 0.5)
+                    .allowsHitTesting(false)
+            }
+            .allowsHitTesting(!sidebarOpen)
+            .accessibilityHidden(sidebarOpen)
+            .offset(x: sidebarOpen ? sidebarWidth : 0, y: -previewTop)
+            .zIndex(1)
+            if sidebarOpen {
+                Button { setSidebar(false) } label: {
+                    Color.clear
+                        .frame(width: previewWidth, height: fullHeight)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("关闭侧边栏")
+                .accessibilityIdentifier("root.sidebar.close")
+                .offset(x: sidebarWidth)
+                .zIndex(2)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+        .simultaneousGesture(DragGesture(minimumDistance: 28)
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) * 1.4 else { return }
+                if value.translation.width > 80 && value.startLocation.x < 32 {
+                    setSidebar(true)
+                } else if value.translation.width < -72 && sidebarOpen {
+                    setSidebar(false)
+                }
+            })
     }
 
     private func prepareSpeech() {
