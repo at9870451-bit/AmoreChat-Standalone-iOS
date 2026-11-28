@@ -36,7 +36,11 @@ struct OpenAICompatibleBackend: ChatBackend {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+        // Success is SSE; gateways return bounded JSON errors (429/5xx).
+        request.setValue("text/event-stream, application/json", forHTTPHeaderField: "Accept")
+        // The server may spend 120s waiting for an upstream before its finite retry.
+        // URLSession's default 60s would abandon an otherwise valid server reply.
+        if profile.provider == .amoreServer { request.timeoutInterval = 180 }
         request.httpBody = body
         // Never follow a Location header with the bearer token to another origin.
         let transport = session
@@ -89,7 +93,8 @@ struct OpenAICompatibleBackend: ChatBackend {
     }
 
     func requestBody(messages: [ChatMessage], options: ChatOptions) throws -> Data {
-        var encodedMessages = try messages.map(encodeMessage)
+        var encodedMessages = try requestMessages(messages)
+        guard !encodedMessages.isEmpty else { throw AdapterError.emptyConversation }
         // The persona is a static built-in instruction only. It never contains
         // imported archive text or a user profile, and it is sent as a system
         // message so every configured provider gets the same conversational style.
@@ -114,6 +119,38 @@ struct OpenAICompatibleBackend: ChatBackend {
         guard let body = try? JSONSerialization.data(withJSONObject: payload)
         else { throw AdapterError.invalidRequest }
         return body
+    }
+
+    /// Normalize only the outgoing copy, never the local transcript. A stopped or
+    /// failed reply may contain reasoning but no answer; sending an empty assistant
+    /// can invalidate strict chat APIs. Keep partial answers regardless of status.
+    /// Coalesce adjacent equal roles (including users separated by a failed reply)
+    /// without inventing an answer or dropping any text/image part. No UI limit applies.
+    private func requestMessages(_ messages: [ChatMessage]) throws -> [[String: Any]] {
+        var result = [[String: Any]]()
+        for message in messages {
+            let hasText = !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            guard hasText || !message.attachments.isEmpty else { continue }
+            let encoded = try encodeMessage(message)
+            if let last = result.last, last["role"] as? String == message.role.rawValue {
+                var combined = last
+                if let previous = last["content"] as? String, let next = encoded["content"] as? String {
+                    combined["content"] = previous + "\n\n" + next
+                } else {
+                    combined["content"] = Self.contentParts(last["content"]) + Self.contentParts(encoded["content"])
+                }
+                result[result.count - 1] = combined
+            } else {
+                result.append(encoded)
+            }
+        }
+        return result
+    }
+
+    private static func contentParts(_ content: Any?) -> [[String: Any]] {
+        if let parts = content as? [[String: Any]] { return parts }
+        if let text = content as? String { return [["type": "text", "text": text]] }
+        return []
     }
 
     private func encodeMessage(_ message: ChatMessage) throws -> [String: Any] {
@@ -203,7 +240,17 @@ struct OpenAICompatibleBackend: ChatBackend {
         let (bytes, response) = try await session.bytes(for: request, delegate: RejectRedirects())
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw AdapterError.invalidResponse }
-        guard (200...299).contains(http.statusCode) else { throw AdapterError.http(http.statusCode) }
+        if !(200...299).contains(http.statusCode) ||
+            http.value(forHTTPHeaderField: "Content-Type")?.lowercased().contains("application/json") == true {
+            // Never expose upstream bodies/URLs, and do not buffer an unbounded error.
+            var data = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < 16 * 1_024 else { break }
+                data.append(byte)
+            }
+            throw responseError(data: data, status: http.statusCode)
+        }
         var parser = SSEParser()
         var byteCount = 0
         for try await byte in bytes {
@@ -217,6 +264,26 @@ struct OpenAICompatibleBackend: ChatBackend {
         }
         try Task.checkCancellation()
         throw AdapterError.interrupted // 2xx connection closing without [DONE] is not success.
+    }
+
+    private static func responseError(data: Data, status: Int) -> AdapterError {
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let nested = json?["error"] as? [String: Any]
+        let code = (json?["code"] as? String) ?? (nested?["code"] as? String)
+        // Only codes we recognize select fixed local copy. Arbitrary server text,
+        // user prompts, account information and credentials never enter an error.
+        switch code {
+        case "UPSTREAM_BUSY", "RATE_LIMITED", "rate_limit_exceeded": return .busy(status)
+        case "UPSTREAM_TIMEOUT": return .upstreamTimeout(status)
+        case "MODEL_UNAVAILABLE": return .unavailableModel(status)
+        case "QUOTA_EXCEEDED": return .quota(status)
+        case "MESSAGE_TOO_LARGE", "HISTORY_TOO_LARGE", "context_length_exceeded": return .contextLimit(status)
+        default:
+            if status == 429 { return .busy(status) }
+            if status == 504 { return .upstreamTimeout(status) }
+            if status == 413 { return .contextLimit(status) }
+            return (200...299).contains(status) ? .invalidResponse : .http(status)
+        }
     }
 
     private static func emit(data: String, to continuation: AsyncThrowingStream<BackendChunk, Error>.Continuation) throws {
@@ -293,6 +360,7 @@ private enum AdapterError: LocalizedError {
     case unsupportedAttachment, attachmentReadFailure, unsupportedWebSearch, unsupportedThinking
     case http(Int), serverFailure, networkFailure, invalidResponse, interrupted
     case incompleteOutput, filteredOutput, unsupportedToolCall
+    case busy(Int), upstreamTimeout(Int), unavailableModel(Int), quota(Int), contextLimit(Int)
 
     var errorDescription: String? {
         switch self {
@@ -306,6 +374,11 @@ private enum AdapterError: LocalizedError {
         case .unsupportedWebSearch: "当前模型未配置网页搜索协议；请选用 OpenRouter、按服务商文档配置兼容协议，或关闭搜索。"
         case .unsupportedThinking: "自定义服务商未声明思考模式协议；请关闭深度思考。"
         case .http(let code): "模型服务返回 HTTP \(code)；请检查服务地址、模型和授权。"
+        case .busy(let code): "模型服务繁忙或触发限流（HTTP \(code)），请稍后重试；本地对话已保留。"
+        case .upstreamTimeout(let code): "模型服务响应超时（HTTP \(code)），请稍后重试；本地对话已保留。"
+        case .unavailableModel(let code): "当前服务器模型暂不可用（HTTP \(code)），请刷新模型列表后重新选择；本地对话已保留。"
+        case .quota(let code): "服务器 token 额度不足（HTTP \(code)），请检查账户额度。"
+        case .contextLimit(let code): "完整对话超出模型服务的上下文限制（HTTP \(code)）；未截断或清空本地历史。"
         case .serverFailure: "模型服务报告错误，请检查服务配置。"
         case .networkFailure: "连接模型服务失败，请检查网络和服务配置。"
         case .invalidResponse: "模型服务返回了无效的流式数据。"

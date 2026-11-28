@@ -61,18 +61,24 @@ import Observation
     private let catalog: ModelCatalog
     private let injectedBackend: Bool
     private let injectedModelName: String?
+    /// A transport seam lets switch tests use the real adapter without networking.
+    private let modelSession: URLSession
     private var backend: any ChatBackend
     private var streamTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var archiveWriteTask: Task<Void, Never>?
     @ObservationIgnored private var replyBuffer: ReplyStreamBuffer?
+    @ObservationIgnored private var availableServerModels: [BackendServerModel]?
+    @ObservationIgnored private var pendingServerModels: [BackendServerModel]?
     @ObservationIgnored private var replyFlushTask: Task<Void, Never>?
     @ObservationIgnored private var streamCheckpointTask: Task<Void, Never>?
     private let replyPublicationInterval: TimeInterval = 1.0 / 30.0
 
     init(archive: ChatArchive = ChatArchive(), backend: (any ChatBackend)? = nil,
-         catalog: ModelCatalog? = nil, injectedModelName: String? = nil) {
+         catalog: ModelCatalog? = nil, injectedModelName: String? = nil,
+         modelSession: URLSession = .shared) {
         self.archive = archive
+        self.modelSession = modelSession
         self.catalog = catalog ?? ModelCatalog.shared
         self.injectedBackend = backend != nil
         self.injectedModelName = injectedModelName
@@ -86,13 +92,23 @@ import Observation
         guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
         let profile = catalog.active
         if let profile, profile.provider == .amoreServer {
+            if let models = availableServerModels,
+               !models.contains(where: { remote in
+                   String(remote.id) == profile.modelID && profile.serverModelName == remote.model
+               }) {
+                backend = UnconfiguredBackend()
+                webSearchEnabled = false
+                thinkingEnabled = false
+                errorText = "当前服务器模型已变更，请在模型列表重新选择；本地会话和草稿已保留。"
+                return
+            }
             if let token = serverAccessToken, !token.isEmpty {
-                backend = OpenAICompatibleBackend(profile: profile, apiKey: token)
+                backend = OpenAICompatibleBackend(profile: profile, apiKey: token, session: modelSession)
             } else {
                 backend = UnconfiguredBackend()
             }
         } else if let profile, let key = catalog.apiKey(for: profile.id), !key.isEmpty {
-            backend = OpenAICompatibleBackend(profile: profile, apiKey: key)
+            backend = OpenAICompatibleBackend(profile: profile, apiKey: key, session: modelSession)
         } else {
             backend = UnconfiguredBackend()
         }
@@ -120,6 +136,23 @@ import Observation
         guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
         catalog.select(id)
         refreshBackend()
+    }
+
+    /// Changing the transport never creates/opens a chat or rewrites its draft.
+    func activateServerModel(_ model: BackendServerModel) {
+        guard !isGenerating else { errorText = "请先停止生成，再切换模型。"; return }
+        catalog.activateServerModel(model)
+        refreshBackend()
+    }
+
+    /// Call only after a successful authenticated list refresh, not a transient
+    /// loading/error/unauthenticated empty list. Never switches or clears a chat.
+    func updateServerModels(_ models: [BackendServerModel]) {
+        guard !injectedBackend else { return }
+        guard !isGenerating else { pendingServerModels = models; return }
+        availableServerModels = models
+        catalog.reconcileServerModels(models)
+        if catalog.active?.provider == .amoreServer { refreshBackend() }
     }
 
     func setServerAccessToken(_ token: String?) {
@@ -395,6 +428,10 @@ import Observation
             streamCheckpointTask?.cancel(); streamCheckpointTask = nil
             replyBuffer = nil
             isGenerating = false; streamTask = nil
+            if let models = pendingServerModels {
+                pendingServerModels = nil
+                updateServerModels(models)
+            }
             persistImmediately()
         }
     }

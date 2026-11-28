@@ -6,6 +6,7 @@ import XCTest
 /// In-process URLProtocol exercises the real URLSession.bytes(for:) transport; no production mocks.
 private final class StreamingURLProtocol: URLProtocol {
     static var status = 200
+    static var contentType = "text/event-stream"
     static var lines: [Data] = []
     static var capturedRequest: URLRequest?
     static var startExpectation: XCTestExpectation?
@@ -18,7 +19,7 @@ private final class StreamingURLProtocol: URLProtocol {
     override func startLoading() {
         Self.capturedRequest = request
         let response = HTTPURLResponse(url: request.url!, statusCode: Self.status,
-                                       httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/event-stream"])!
+                                       httpVersion: "HTTP/1.1", headerFields: ["Content-Type": Self.contentType])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         Self.startExpectation?.fulfill()
         for line in Self.lines { client?.urlProtocol(self, didLoad: line) }
@@ -51,6 +52,7 @@ final class OpenAICompatibleBackendTests: XCTestCase {
     override func setUp() {
         super.setUp()
         StreamingURLProtocol.status = 200
+        StreamingURLProtocol.contentType = "text/event-stream"
         StreamingURLProtocol.lines = []
         StreamingURLProtocol.capturedRequest = nil
         StreamingURLProtocol.startExpectation = nil
@@ -217,6 +219,69 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         let list = try XCTUnwrap(json["messages"] as? [[String: Any]])
         let text = try XCTUnwrap(list.last?["content"] as? String)
         XCTAssertTrue(text.contains("Sample PDF body"))
+    }
+
+    func testSkipsEmptyFailedRepliesButPreservesPartialAnswersAndSourceHistory() throws {
+        let conversation = [ChatMessage(role: .user, content: "first"),
+            ChatMessage(role: .assistant, content: "", reasoning: "private thought", status: .failed),
+            ChatMessage(role: .user, content: "second"),
+            ChatMessage(role: .assistant, content: "partial answer", status: .failed),
+            ChatMessage(role: .user, content: "third")]
+        let body = try backend(profile()).requestBody(messages: conversation, options: plain)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let sent = try XCTUnwrap(json["messages"] as? [[String: String]])
+        XCTAssertEqual(sent.map { $0["role"] }, ["system", "user", "assistant", "user"])
+        XCTAssertEqual(sent[1]["content"], "first\n\nsecond")
+        XCTAssertEqual(sent[2]["content"], "partial answer")
+        XCTAssertEqual(sent[3]["content"], "third")
+        XCTAssertEqual(conversation.count, 5)
+        XCTAssertEqual(conversation[1].reasoning, "private thought")
+        XCTAssertEqual(conversation[1].status, .failed)
+        XCTAssertFalse(String(decoding: body, as: UTF8.self).contains("private thought"))
+    }
+
+    func testEmptyOnlyConversationFailsWithoutNetworkOrSyntheticAnswer() async {
+        do {
+            _ = try await backend(profile()).stream(messages: [ChatMessage(role: .assistant,
+                content: "  \n", reasoning: "private thought", status: .failed)], options: plain)
+            XCTFail("No usable user/assistant content must not synthesize a response")
+        } catch { XCTAssertFalse(error.localizedDescription.isEmpty) }
+        XCTAssertNil(StreamingURLProtocol.capturedRequest)
+    }
+
+    func testJSONBusyErrorsKeepSafeStatusAndNeverExposeBody() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        for status in [429, 500] {
+            StreamingURLProtocol.status = status
+            StreamingURLProtocol.lines = [Data("{\"code\":\"UPSTREAM_BUSY\",\"message\":\"fixture-fake-secret private prompt https://private.invalid\"}".utf8)]
+            let stream = try await backend(profile()).stream(messages: history, options: plain)
+            do {
+                for try await _ in stream {}
+                XCTFail("JSON error must not complete as an empty successful SSE")
+            } catch {
+                XCTAssertTrue(error.localizedDescription.contains("HTTP \(status)"))
+                XCTAssertTrue(error.localizedDescription.contains("繁忙"))
+                XCTAssertFalse(error.localizedDescription.contains("fixture-fake-secret"))
+                XCTAssertFalse(error.localizedDescription.contains("private prompt"))
+                XCTAssertFalse(error.localizedDescription.contains("private.invalid"))
+            }
+            XCTAssertEqual(StreamingURLProtocol.capturedRequest?.value(forHTTPHeaderField: "Accept"),
+                           "text/event-stream, application/json")
+        }
+    }
+
+    func testUnknownJSONCodeCannotLeakArbitraryServerText() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        StreamingURLProtocol.status = 502
+        StreamingURLProtocol.lines = [Data("{\"code\":\"private-account-secret\",\"message\":\"private prompt\"}".utf8)]
+        let stream = try await backend(profile()).stream(messages: history, options: plain)
+        do {
+            for try await _ in stream {}
+            XCTFail("Expected HTTP failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("502"))
+            XCTAssertFalse(error.localizedDescription.contains("private"))
+        }
     }
 
     func testCancellingConsumerStopsURLSessionRequest() async throws {

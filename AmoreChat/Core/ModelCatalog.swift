@@ -58,13 +58,17 @@ import Security
     /// A server model is metadata only: the credential is the account JWT, never stored here.
     func activateServerModel(_ remote: BackendServerModel) {
         var profile = profiles.first(where: {
+            $0.provider == .amoreServer && $0.serverModelName == remote.model
+        }) ?? profiles.first(where: {
             $0.provider == .amoreServer && $0.modelID == String(remote.id)
+                && ($0.serverModelName == nil || $0.serverModelName == remote.model)
         }) ?? ModelProfile(label: remote.label, provider: .amoreServer,
                            baseURL: BackendConfig.apiURL("api/v1/ai").absoluteString,
                            modelID: String(remote.id), appendV1: false)
         profile.label = remote.label
         profile.baseURL = BackendConfig.apiURL("api/v1/ai").absoluteString
         profile.modelID = String(remote.id)
+        profile.serverModelName = remote.model
         profile.appendV1 = false
         profile.compatibleThinking = remote.supportsThinking ? .reasoningEffort : nil
         profile.compatibleWebSearch = remote.supportsWebSearch ?? false
@@ -76,6 +80,29 @@ import Security
         activeID = profile.id
         persist()
     }
+    /// Refresh route IDs by semantic model identity, keeping local profile UUIDs.
+    /// Legacy entries can be upgraded only when both ID and label still match.
+    /// Missing/ambiguous routes remain saved for explicit reselection; no guessing.
+    func reconcileServerModels(_ models: [BackendServerModel]) {
+        var changed = false
+        for index in profiles.indices where profiles[index].provider == .amoreServer {
+            let profile = profiles[index]
+            let matches = models.filter { remote in
+                if let name = profile.serverModelName { return remote.model == name }
+                return String(remote.id) == profile.modelID && remote.label == profile.label
+            }
+            guard matches.count == 1, let remote = matches.first else { continue }
+            var updated = profile
+            updated.modelID = String(remote.id)
+            updated.serverModelName = remote.model
+            updated.label = remote.label
+            updated.compatibleThinking = remote.supportsThinking ? .reasoningEffort : nil
+            updated.compatibleWebSearch = remote.supportsWebSearch ?? false
+            if updated != profile { profiles[index] = updated; changed = true }
+        }
+        if changed { persist() }
+    }
+
     func apiKey(for id: UUID) -> String? { secrets.read(for: id) }
 
     func fetchModels(for profile: ModelProfile, apiKey: String) async throws -> [String] {

@@ -55,6 +55,9 @@ struct ModelProfile: Identifiable, Codable, Hashable, Sendable {
     var format: ModelAPIFormat
     var compatibleThinking: CompatibleThinking? = nil
     var compatibleWebSearch: Bool? = nil
+    /// Stable semantic identity for server routes whose numeric IDs can change.
+    /// Optional so old local catalogs still decode; never used as a chat/session ID.
+    var serverModelName: String? = nil
 
     private var apiHost: String? {
         guard let url = try? ModelEndpoint.root(baseURL, appendV1: appendV1),

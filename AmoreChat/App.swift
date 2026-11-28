@@ -105,6 +105,13 @@ struct RootView: View {
             await Task.detached(priority: .utility) { _ = try? ImportFolder.directory() }.value
             controller.setServerAccessToken(backend.currentAccessToken)
             await backend.loadServerModels()
+            if backend.isSignedIn, backend.serverModelsError == nil, !backend.isTestMode {
+                controller.updateServerModels(backend.serverModels)
+            }
+        }
+        .onChange(of: backend.serverModels) { _, models in
+            guard backend.isSignedIn, backend.serverModelsError == nil, !backend.isTestMode else { return }
+            controller.updateServerModels(models)
         }
         .onChange(of: backend.currentAccessToken) { _, token in
             controller.setServerAccessToken(token)

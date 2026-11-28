@@ -129,6 +129,9 @@ struct ModelSettingsView: View {
         .task {
             await backend.loadPublicConfig()
             await backend.loadServerModels()
+            if backend.isSignedIn, backend.serverModelsError == nil, !backend.isTestMode {
+                controller.updateServerModels(backend.serverModels)
+            }
         }
         .sheet(item: $editor) { request in
             NavigationStack {
@@ -170,8 +173,7 @@ struct ModelSettingsView: View {
         let active = catalog.active?.provider == .amoreServer && catalog.active?.modelID == String(model.id)
         return Button {
             guard !controller.isGenerating else { return }
-            catalog.activateServerModel(model)
-            controller.refreshBackend()
+            controller.activateServerModel(model)
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: "server.rack")
@@ -213,8 +215,7 @@ struct ModelSettingsView: View {
             Button {
                 guard !controller.isGenerating else { return }
                 if catalog.activeID != profile.id {
-                    catalog.select(profile.id)
-                    controller.refreshBackend()
+                    controller.selectModel(profile.id)
                 }
             } label: {
                 HStack(spacing: 12) {
