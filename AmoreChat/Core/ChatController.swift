@@ -170,6 +170,7 @@ import Observation
             for i in stored.indices {
                 for j in stored[i].messages.indices where stored[i].messages[j].status == .streaming {
                     stored[i].messages[j].status = .failed
+                    stored[i].messages[j].failureReason = .interrupted
                     recoveredInterruptedReply = true
                 }
             }
@@ -399,6 +400,7 @@ import Observation
         startStreamCheckpoints(for: reply.id)
         streamTask = Task {
             var status: MessageStatus = .complete
+            var failure: MessageFailureReason?
             do {
                 let chunks = try await backend.stream(messages: history, options: options)
                 for try await chunk in chunks {
@@ -411,15 +413,20 @@ import Observation
                 try Task.checkCancellation()
             } catch is CancellationError {
                 status = .failed
+                failure = .cancelled
                 errorText = "已停止生成。"
             } catch {
                 status = .failed
+                failure = (error as? ChatFailureClassifying)?.failureReason ?? .requestFailed
                 errorText = "请求失败：\(error.localizedDescription)"
             }
             // All exit paths publish pending real content and close the monotonic timer.
             replyBuffer?.finishTiming(now: ProcessInfo.processInfo.systemUptime)
             flushPendingReply()
-            mutateReply(reply.id, in: id) { $0.status = status }
+            mutateReply(reply.id, in: id) {
+                $0.status = status
+                $0.failureReason = failure
+            }
             if status == .complete, let answer = replyBuffer?.answer,
                !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 completedReplyText = answer

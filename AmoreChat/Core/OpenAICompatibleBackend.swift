@@ -36,9 +36,9 @@ struct OpenAICompatibleBackend: ChatBackend {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Success is SSE; gateways return bounded JSON errors (429/5xx).
+        // Compatible gateways may return either streamed chunks or a JSON completion.
         request.setValue("text/event-stream, application/json", forHTTPHeaderField: "Accept")
-        // The server may spend 120s waiting for an upstream before its finite retry.
+        // Allow the server's bounded upstream wait and overall gateway budget.
         // URLSession's default 60s would abandon an otherwise valid server reply.
         if profile.provider == .amoreServer { request.timeoutInterval = 180 }
         request.httpBody = body
@@ -52,6 +52,8 @@ struct OpenAICompatibleBackend: ChatBackend {
                 } catch {
                     if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                         continuation.finish(throwing: CancellationError())
+                    } else if (error as? URLError)?.code == .timedOut {
+                        continuation.finish(throwing: AdapterError.networkTimeout)
                     } else if let safe = error as? AdapterError {
                         continuation.finish(throwing: safe)
                     } else {
@@ -238,10 +240,12 @@ struct OpenAICompatibleBackend: ChatBackend {
     private static func receive(request: URLRequest, session: URLSession,
                                 continuation: AsyncThrowingStream<BackendChunk, Error>.Continuation) async throws {
         let (bytes, response) = try await session.bytes(for: request, delegate: RejectRedirects())
+        // stop/[DONE] may precede a connection that the service keeps open.
+        // Cancel this task only (never the caller's shared session) on every exit.
+        defer { bytes.task.cancel() }
         try Task.checkCancellation()
         guard let http = response as? HTTPURLResponse else { throw AdapterError.invalidResponse }
-        if !(200...299).contains(http.statusCode) ||
-            http.value(forHTTPHeaderField: "Content-Type")?.lowercased().contains("application/json") == true {
+        if !(200...299).contains(http.statusCode) {
             // Never expose upstream bodies/URLs, and do not buffer an unbounded error.
             var data = Data()
             for try await byte in bytes {
@@ -251,31 +255,89 @@ struct OpenAICompatibleBackend: ChatBackend {
             }
             throw responseError(data: data, status: http.statusCode)
         }
+        let mediaType = http.value(forHTTPHeaderField: "Content-Type")?
+            .split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if mediaType == "application/json" {
+            // A non-streaming ChatCompletion is valid even when stream:true was
+            // requested. This separate success buffer is bounded like the SSE body.
+            var data = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                guard data.count < 16 * 1_024 * 1_024 else { throw AdapterError.invalidResponse }
+                data.append(byte)
+            }
+            try Task.checkCancellation()
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { throw AdapterError.invalidResponse }
+            var state = CompletionState()
+            try emit(json: json, payloadKey: "message", status: http.statusCode, state: &state, to: continuation)
+            guard state.didStop else { throw AdapterError.interrupted }
+            guard state.didReceiveOutput else { throw AdapterError.invalidResponse }
+            return
+        }
+        guard mediaType == "text/event-stream" else { throw AdapterError.invalidResponse }
         var parser = SSEParser()
+        var state = CompletionState()
         var byteCount = 0
         for try await byte in bytes {
             try Task.checkCancellation()
             byteCount += 1
             guard byteCount <= 16 * 1_024 * 1_024 else { throw AdapterError.invalidResponse }
             if let data = try parser.accept(byte) {
-                if data == "[DONE]" { return }
-                try emit(data: data, to: continuation)
+                try consume(data: data, status: http.statusCode, state: &state, to: continuation)
+                if state.didStop || state.didReceiveDone {
+                    guard state.didReceiveOutput else { throw AdapterError.invalidResponse }
+                    return
+                }
             }
         }
         try Task.checkCancellation()
-        throw AdapterError.interrupted // 2xx connection closing without [DONE] is not success.
+        // Only a clean transport EOF can flush a final unterminated event.
+        // A recognized stop/[DONE] has already returned above; otherwise a
+        // transport failure propagates without claiming successful completion.
+        if let data = try parser.finish() {
+            try consume(data: data, status: http.statusCode, state: &state, to: continuation)
+        }
+        guard state.didStop || state.didReceiveDone else { throw AdapterError.interrupted }
+        guard state.didReceiveOutput else { throw AdapterError.invalidResponse }
+    }
+
+    private struct CompletionState {
+        var didReceiveChoice = false
+        var didReceiveOutput = false
+        var didStop = false
+        var didReceiveDone = false
+    }
+
+    private static func consume(data: String, status: Int, state: inout CompletionState,
+                                to continuation: AsyncThrowingStream<BackendChunk, Error>.Continuation) throws {
+        if data == "[DONE]" {
+            guard state.didReceiveChoice, state.didReceiveOutput else { throw AdapterError.invalidResponse }
+            state.didReceiveDone = true
+            return
+        }
+        guard let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any]
+        else { throw AdapterError.invalidResponse }
+        try emit(json: json, payloadKey: "delta", status: status, state: &state, to: continuation)
     }
 
     private static func responseError(data: Data, status: Int) -> AdapterError {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let nested = json?["error"] as? [String: Any]
-        let code = (json?["code"] as? String) ?? (nested?["code"] as? String)
+        return responseError(json: json ?? [:], status: status)
+    }
+
+    private static func responseError(json: [String: Any], status: Int) -> AdapterError {
+        let nested = json["error"] as? [String: Any]
+        let code = (nested?["code"] as? String) ?? (json["code"] as? String)
         // Only codes we recognize select fixed local copy. Arbitrary server text,
         // user prompts, account information and credentials never enter an error.
         switch code {
         case "UPSTREAM_BUSY", "RATE_LIMITED", "rate_limit_exceeded": return .busy(status)
         case "UPSTREAM_TIMEOUT": return .upstreamTimeout(status)
-        case "MODEL_UNAVAILABLE": return .unavailableModel(status)
+        case "MODEL_UNAVAILABLE", "UPSTREAM_UNAVAILABLE", "UPSTREAM_CONFIGURATION": return .unavailableModel(status)
+        case "INVALID_UPSTREAM_RESPONSE", "EMPTY_UPSTREAM": return .invalidResponse
+        case "REQUEST_INTERRUPTED": return .interrupted
         case "QUOTA_EXCEEDED": return .quota(status)
         case "MESSAGE_TOO_LARGE", "HISTORY_TOO_LARGE", "context_length_exceeded": return .contextLimit(status)
         default:
@@ -286,25 +348,65 @@ struct OpenAICompatibleBackend: ChatBackend {
         }
     }
 
-    private static func emit(data: String, to continuation: AsyncThrowingStream<BackendChunk, Error>.Continuation) throws {
-        guard let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any]
-        else { throw AdapterError.invalidResponse }
-        if json["error"] != nil { throw AdapterError.serverFailure }
+    private static func emit(json: [String: Any], payloadKey: String, status: Int,
+                             state: inout CompletionState,
+                             to continuation: AsyncThrowingStream<BackendChunk, Error>.Continuation) throws {
+        // Check errors before any content, including HTTP 200 error envelopes.
+        if json["error"] != nil || json["code"] != nil { throw responseError(json: json, status: status) }
         guard let choices = json["choices"] as? [[String: Any]] else { throw AdapterError.invalidResponse }
-        for choice in choices where (choice["index"] as? Int ?? 0) == 0 {
+        if choices.isEmpty {
+            // OpenAI stream_options.include_usage sends a final choices:[] chunk.
+            guard payloadKey == "delta", state.didReceiveChoice,
+                  json["usage"] is [String: Any] else { throw AdapterError.invalidResponse }
+            return
+        }
+        let primary = choices.filter { ($0["index"] as? Int ?? 0) == 0 }
+        guard primary.count <= 1, payloadKey != "message" || primary.count == 1
+        else { throw AdapterError.invalidResponse }
+        for choice in primary {
+            let payload: [String: Any]
+            if let value = choice[payloadKey] as? [String: Any] {
+                payload = value
+            } else {
+                guard payloadKey == "delta", choice[payloadKey] == nil else { throw AdapterError.invalidResponse }
+                payload = [:] // Some compatible services omit delta on the stop chunk.
+            }
+            // A stop is terminal for this choice; usage-only chunks may follow,
+            // but accepting new output after it would hide a malformed/truncated reply.
+            if state.didStop { throw AdapterError.invalidResponse }
+            state.didReceiveChoice = true
+            if let value = (payload["reasoning_content"] as? String) ?? (payload["reasoning"] as? String),
+               !value.isEmpty {
+                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { state.didReceiveOutput = true }
+                continuation.yield(.reasoning(value))
+            }
+            if let value = payload["content"] as? String, !value.isEmpty {
+                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { state.didReceiveOutput = true }
+                continuation.yield(.text(value))
+            }
+            // Yield the final delta/message first, even if that same choice is
+            // truncated, filtered, or requests an unsupported tool.
+            for key in ["content", "reasoning_content", "reasoning"] {
+                if let value = payload[key], !(value is NSNull), !(value is String) {
+                    throw AdapterError.invalidResponse
+                }
+            }
+            if let role = payload["role"], role as? String != "assistant" { throw AdapterError.invalidResponse }
+            if let calls = payload["tool_calls"], !(calls is NSNull),
+               (calls as? [Any])?.isEmpty != true { throw AdapterError.unsupportedToolCall }
+            if let call = payload["function_call"], !(call is NSNull) { throw AdapterError.unsupportedToolCall }
             if let reason = choice["finish_reason"] as? String {
-                switch reason {
-                case "stop": break
+                // Only Chat Completions terminal values; no unverified vendor aliases.
+                switch reason.lowercased() {
+                case "stop": state.didStop = true
                 case "length": throw AdapterError.incompleteOutput
                 case "content_filter": throw AdapterError.filteredOutput
                 case "tool_calls", "function_call": throw AdapterError.unsupportedToolCall
                 default: throw AdapterError.invalidResponse
                 }
+            } else if let reason = choice["finish_reason"], !(reason is NSNull) {
+                throw AdapterError.invalidResponse
             }
-            guard let delta = choice["delta"] as? [String: Any] else { continue }
-            if let value = (delta["reasoning_content"] as? String) ?? (delta["reasoning"] as? String),
-               !value.isEmpty { continuation.yield(.reasoning(value)) }
-            if let value = delta["content"] as? String, !value.isEmpty { continuation.yield(.text(value)) }
         }
     }
 }
@@ -324,28 +426,47 @@ private struct SSEParser {
     private var dataLines = [String]()
     private var eventBytes = 0
     private var isError = false
+    private var isFirstLine = true
+    private var previousWasCR = false
     private let limit = 256 * 1_024
 
     mutating func accept(_ byte: UInt8) throws -> String? {
-        if byte != 0x0a {
-            guard line.count < limit else { throw AdapterError.invalidResponse }
-            line.append(byte)
-            return nil
+        // WHATWG SSE: UTF-8 BOM at stream start, and CRLF, LF or bare CR
+        // line endings. Delay UTF-8 decoding until a full line is buffered.
+        if previousWasCR {
+            previousWasCR = false
+            if byte == 0x0a { return nil }
         }
-        if line.last == 0x0d { line.removeLast() }
-        guard let text = String(bytes: line, encoding: .utf8) else { throw AdapterError.invalidResponse }
+        if byte == 0x0d || byte == 0x0a {
+            previousWasCR = byte == 0x0d
+            return try consumeLine()
+        }
+        guard line.count < limit else { throw AdapterError.invalidResponse }
+        line.append(byte)
+        return nil
+    }
+
+    mutating func finish() throws -> String? {
+        // Compatibility for gateways that close after a complete data JSON line
+        // but omit the last blank separator. Completion still needs stop/[DONE].
+        if !line.isEmpty, let event = try consumeLine() { return event }
+        return try dispatch()
+    }
+
+    private mutating func consumeLine() throws -> String? {
+        guard var text = String(bytes: line, encoding: .utf8) else { throw AdapterError.invalidResponse }
         line.removeAll(keepingCapacity: true)
-        if text.isEmpty {
-            defer { dataLines.removeAll(keepingCapacity: true); eventBytes = 0; isError = false }
-            if isError { throw AdapterError.serverFailure }
-            return dataLines.isEmpty ? nil : dataLines.joined(separator: "\n")
+        if isFirstLine {
+            isFirstLine = false
+            if text.hasPrefix("\u{feff}") { text.removeFirst() }
         }
+        if text.isEmpty { return try dispatch() }
         if text.first == ":" { return nil }
         let pair = text.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
         let field = pair[0]
         let rawValue = pair.count > 1 ? String(pair[1]) : ""
         let value = rawValue.first == " " ? String(rawValue.dropFirst()) : rawValue
-        if field == "event" && value == "error" { isError = true }
+        if field == "event" { isError = value == "error" }
         if field == "data" {
             eventBytes += value.utf8.count + 1
             guard eventBytes <= limit else { throw AdapterError.invalidResponse }
@@ -353,14 +474,38 @@ private struct SSEParser {
         }
         return nil
     }
+
+    private mutating func dispatch() throws -> String? {
+        defer { dataLines.removeAll(keepingCapacity: true); eventBytes = 0; isError = false }
+        if isError { throw AdapterError.serverFailure }
+        return dataLines.isEmpty ? nil : dataLines.joined(separator: "\n")
+    }
 }
 
-private enum AdapterError: LocalizedError {
+private enum AdapterError: LocalizedError, ChatFailureClassifying {
     case invalidURL, invalidModel, invalidKey, emptyConversation, invalidRequest
     case unsupportedAttachment, attachmentReadFailure, unsupportedWebSearch, unsupportedThinking
-    case http(Int), serverFailure, networkFailure, invalidResponse, interrupted
+    case http(Int), serverFailure, networkFailure, networkTimeout, invalidResponse, interrupted
     case incompleteOutput, filteredOutput, unsupportedToolCall
     case busy(Int), upstreamTimeout(Int), unavailableModel(Int), quota(Int), contextLimit(Int)
+
+    var failureReason: MessageFailureReason {
+        switch self {
+        case .incompleteOutput: .outputLimit
+        case .filteredOutput: .filtered
+        case .unsupportedToolCall: .unsupportedTool
+        case .busy: .busy
+        case .contextLimit: .contextLimit
+        case .invalidKey: .authentication
+        case .unavailableModel: .unavailable
+        case .interrupted, .networkFailure: .interrupted
+        case .networkTimeout, .upstreamTimeout: .timedOut
+        case .invalidResponse: .invalidResponse
+        case .http(let status):
+            status == 401 || status == 403 ? .authentication : .requestFailed
+        default: .requestFailed
+        }
+    }
 
     var errorDescription: String? {
         switch self {
@@ -381,6 +526,7 @@ private enum AdapterError: LocalizedError {
         case .contextLimit(let code): "完整对话超出模型服务的上下文限制（HTTP \(code)）；未截断或清空本地历史。"
         case .serverFailure: "模型服务报告错误，请检查服务配置。"
         case .networkFailure: "连接模型服务失败，请检查网络和服务配置。"
+        case .networkTimeout: "连接模型服务超时，请稍后重试；本地对话已保留。"
         case .invalidResponse: "模型服务返回了无效的流式数据。"
         case .interrupted: "模型服务中断了流式输出，请重试。"
         case .incompleteOutput: "模型输出达到长度限制，结果可能不完整。"

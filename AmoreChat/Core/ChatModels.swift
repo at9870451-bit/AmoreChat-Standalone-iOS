@@ -4,6 +4,33 @@ import Foundation
 enum ChatRole: String, Codable, Sendable { case user, assistant }
 enum MessageStatus: String, Codable, Sendable { case complete, streaming, failed }
 
+/// Stored locally and optional on old archives; never substitutes partial output for success.
+enum MessageFailureReason: String, Codable, Sendable {
+    case cancelled, outputLimit, filtered, busy, timedOut, contextLimit, authentication
+    case unavailable, interrupted, invalidResponse, unsupportedTool, requestFailed
+
+    var label: String {
+        switch self {
+        case .cancelled: "已停止"
+        case .outputLimit: "已达输出上限"
+        case .filtered: "回复被服务商中止"
+        case .busy: "模型繁忙"
+        case .timedOut: "响应超时"
+        case .contextLimit: "超出模型上下文"
+        case .authentication: "登录或密钥已失效"
+        case .unavailable: "模型暂不可用"
+        case .interrupted: "连接中断"
+        case .invalidResponse: "返回格式异常"
+        case .unsupportedTool: "当前不支持工具回复"
+        case .requestFailed: "请求未成功"
+        }
+    }
+}
+
+protocol ChatFailureClassifying: Error {
+    var failureReason: MessageFailureReason { get }
+}
+
 struct ChatAttachment: Codable, Identifiable, Sendable, Equatable {
     let id: UUID
     let name: String
@@ -28,6 +55,7 @@ struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
     var attachments: [ChatAttachment]
     let createdAt: Date
     var status: MessageStatus
+    var failureReason: MessageFailureReason? = nil
 
     init(id: UUID = UUID(), role: ChatRole, content: String,
          reasoning: String? = nil, thinkingRequested: Bool? = nil,

@@ -4,6 +4,8 @@
 
 ## 当前可用
 
+- 0.5.12：修正合法回复被误判“未完成”：兼容 HTTP 200 JSON ChatCompletion，SSE 明确 stop 后立即完成并取消剩余连接，不强制等待 [DONE]；正常 EOF 可接收没有尾部空行的完整事件。仍要求明确终止和真实文字/推理，断流、错误对象、截断/过滤/工具调用不会伪报成功。同帧截断正文不丢失，真实失败按繁忙、超时、已停止、输出上限等区分，不恢复输入栏错误横幅。新增兼容性断言但遵循只设备编译交付，不运行模拟器/XCTest。
+
 - 0.5.11：切换模型继续当前会话，按新模型协议重发完整本地历史，保留多轮正文、附件和草稿；跳过空失败占位，只整理请求副本不改本机记录。按稳定模型名称协调旧服务器路由编号，避免编号变化后发错模型；接受明确的 JSON 错误并延长服务器等待时间。不恢复已移除的提示横幅。
 
 - 0.5.10：移除消息列表「回答由 AI 生成，仅供参考」和输入栏模型请求失败横幅及其重试按钮。保留真实消息失败状态和本地文件导入、保存等操作错误提示；沿用 0.5.9 悬浮输入卡、抽屉和本地头像布局。
@@ -37,7 +39,7 @@
 
 ## 构建
 
-需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.11`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
+需要 macOS 和 Xcode 26.x（目标 iOS 18+）。先用 `xcodegen generate --spec project.yml` 生成 `AmoreChatStandalone.xcodeproj`，再运行 `xcodebuild -project AmoreChatStandalone.xcodeproj -scheme AmoreChatStandalone -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build`。GitHub Actions 的 `Standalone iOS Device Build` 和 `Standalone iOS UI Screens` 分别核验真 iOS 设备目标与模拟器。版本 `0.5.12`，Bundle ID `app.amorechat.standalone`，**不会覆盖旧 Amore App**。正式真机安装仍需自己的签名；本项目不自带或读取服务商密钥，在线模型请求、付费搜索与系统权限需在用户配置后验收。
 
 项目结构：`AmoreChat/App.swift` App 入口与导航；`Core/ChatModels.swift` 数据与后端协议；`Core/ChatController.swift` 状态与流式生命周期；`Core/ChatArchive.swift` 本地原子持久化；`Core/SpeechInput.swift` 原生语音服务；`UI/` 全部独立 SwiftUI 组件。原创应用图标由 `scripts/make_icon.py` 生成。
 

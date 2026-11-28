@@ -256,8 +256,11 @@ private struct MessageRow: View {
                                 .accessibilityLabel("分享消息")
                         }
                         if message.status == .failed {
-                            Label("未完成", systemImage: "exclamationmark.circle")
-                                .foregroundStyle(ChatTheme.danger)
+                            Label(message.failureReason?.label ?? "请求未成功",
+                                  systemImage: message.failureReason == .cancelled ? "stop.circle" : "exclamationmark.circle")
+                                .font(.footnote)
+                                .foregroundStyle(message.failureReason == .cancelled ? ChatTheme.muted : ChatTheme.danger)
+                                .accessibilityIdentifier("message.failureReason")
                         }
                         Spacer(minLength: 0)
                         if canRegenerate && message.status == .complete {

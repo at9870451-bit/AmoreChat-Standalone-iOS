@@ -12,6 +12,10 @@ private final class StreamingURLProtocol: URLProtocol {
     static var startExpectation: XCTestExpectation?
     static var holdOpen = false
     static var stopExpectation: XCTestExpectation?
+    static var transportError: URLError?
+    static var deferErrorUntilChunk = false
+    static var failAfterChunk: (() -> Void)?
+    private var stopped = false
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -22,11 +26,32 @@ private final class StreamingURLProtocol: URLProtocol {
                                        httpVersion: "HTTP/1.1", headerFields: ["Content-Type": Self.contentType])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         Self.startExpectation?.fulfill()
+        if Self.deferErrorUntilChunk, let error = Self.transportError {
+            let runLoop = RunLoop.current
+            Self.failAfterChunk = { [weak self] in
+                runLoop.perform {
+                    guard let self = self, !self.stopped else { return }
+                    self.client?.urlProtocol(self, didFailWithError: error)
+                }
+            }
+        }
         for line in Self.lines { client?.urlProtocol(self, didLoad: line) }
-        if !Self.holdOpen { client?.urlProtocolDidFinishLoading(self) }
+        if let error = Self.transportError {
+            if !Self.deferErrorUntilChunk {
+                RunLoop.current.perform { [weak self] in
+                    guard let self = self, !self.stopped else { return }
+                    self.client?.urlProtocol(self, didFailWithError: error)
+                }
+            }
+        } else if !Self.holdOpen {
+            client?.urlProtocolDidFinishLoading(self)
+        }
     }
 
-    override func stopLoading() { Self.stopExpectation?.fulfill() }
+    override func stopLoading() {
+        stopped = true
+        Self.stopExpectation?.fulfill()
+    }
 }
 
 final class OpenAICompatibleBackendTests: XCTestCase {
@@ -58,6 +83,38 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         StreamingURLProtocol.startExpectation = nil
         StreamingURLProtocol.stopExpectation = nil
         StreamingURLProtocol.holdOpen = false
+        StreamingURLProtocol.transportError = nil
+        StreamingURLProtocol.deferErrorUntilChunk = false
+        StreamingURLProtocol.failAfterChunk = nil
+    }
+
+    private func receiveFixture() async throws -> (text: String, reasoning: String, error: Error?) {
+        let stream = try await backend(profile()).stream(messages: history, options: plain)
+        var text = "", reasoning = ""
+        do {
+            for try await chunk in stream {
+                switch chunk {
+                case .text(let value): text += value
+                case .reasoning(let value): reasoning += value
+                }
+                if let fail = StreamingURLProtocol.failAfterChunk {
+                    StreamingURLProtocol.failAfterChunk = nil
+                    fail()
+                }
+            }
+            return (text, reasoning, nil)
+        } catch { return (text, reasoning, error) }
+    }
+
+    private func failureReason(_ error: Error?) -> MessageFailureReason? {
+        (error as? ChatFailureClassifying)?.failureReason
+    }
+
+    private func fragmented(_ text: String, size: Int) -> [Data] {
+        let data = Data(text.utf8)
+        return stride(from: 0, to: data.count, by: size).map {
+            Data(data.dropFirst($0).prefix(size))
+        }
     }
 
     func testSplitSSEWithReasoningAndMultiturnContext() async throws {
@@ -284,6 +341,271 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         }
     }
 
+    // OpenAI Chat Completions: stop is a normal terminal; length/content_filter/
+    // tool_calls are not. WHATWG SSE defines BOM, CR/LF, and multiline data.
+    // EOF tail dispatch below is a gateway compatibility extension, not a
+    // relaxation of the requirement for an explicit successful terminal.
+    func testStopWithoutDoneAcceptsOnlyCleanEOFWithArbitraryByteFragments() async throws {
+        for separator in ["\n", "\r\n", "\r"] {
+            for size in [1, 7, 65_536] {
+                let fixture = "\u{feff}: heartbeat\(separator)\(separator)"
+                    + "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"思考\",\"content\":\"答案\"},\"finish_reason\":\"stop\"}]}"
+                StreamingURLProtocol.lines = fragmented(fixture, size: size)
+                let result = try await receiveFixture()
+                XCTAssertNil(result.error)
+                XCTAssertEqual(result.text, "答案")
+                XCTAssertEqual(result.reasoning, "思考")
+            }
+        }
+    }
+
+    func testMultilineDataAndStopTailWithoutFinalBlankLine() async throws {
+        let fixture = "data: {\"choices\":[\n"
+            + "data: {\"delta\":{\"content\":\"multiline\"},\"finish_reason\":null}]}\n\n"
+            + "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n"
+        StreamingURLProtocol.lines = fragmented(fixture, size: 3)
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, "multiline")
+    }
+
+    func testDoneTailWithoutFinalNewlineCompletes() async throws {
+        StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"delta\":{\"content\":\"complete\"}}]}\n\ndata: [DONE]", size: 1)
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, "complete")
+    }
+
+    func testPartialTailIsPreservedButNeverCompleted() async throws {
+        StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"delta\":{\"content\":\"partial tail\"}}]}", size: 2)
+        let result = try await receiveFixture()
+        XCTAssertEqual(result.text, "partial tail")
+        XCTAssertEqual(failureReason(result.error), .interrupted)
+    }
+
+    func testExplicitStopCompletesBeforeSubsequentMalformedBytes() async throws {
+        StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: {", size: 13)
+        let result = try await receiveFixture()
+        XCTAssertEqual(result.text, "answer")
+        XCTAssertNil(result.error)
+    }
+
+    func testUsageOnlyChunkAfterStopWithoutDone() async throws {
+        StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[],\"usage\":{\"total_tokens\":4}}\n\n", size: 31)
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, "answer")
+    }
+
+    func testLongLegalEventIsNotTruncatedByTransportChunkSize() async throws {
+        let answer = String(repeating: "答案", count: 12_000)
+        let json: [String: Any] = ["choices": [["index": 0, "delta": ["content": answer], "finish_reason": "stop"]]]
+        let encoded = try JSONSerialization.data(withJSONObject: json)
+        let fixture = "data: " + String(decoding: encoded, as: UTF8.self) + "\n\n"
+        for size in [97, 65_536] {
+            StreamingURLProtocol.lines = fragmented(fixture, size: size)
+            let result = try await receiveFixture()
+            XCTAssertNil(result.error)
+            XCTAssertEqual(result.text, answer)
+        }
+    }
+
+    func testJSON200CompletionYieldsRealMessageAndBothReasoningSpellings() async throws {
+        StreamingURLProtocol.contentType = "application/json; charset=utf-8"
+        for reasoningKey in ["reasoning_content", "reasoning"] {
+            let json: [String: Any] = ["object": "chat.completion", "choices": [["index": 0,
+                "message": ["role": "assistant", "content": "真实答案", reasoningKey: "真实思考"], "finish_reason": "stop"]]]
+            let data = try JSONSerialization.data(withJSONObject: json)
+            StreamingURLProtocol.lines = data.map { Data([$0]) }
+            let result = try await receiveFixture()
+            XCTAssertNil(result.error)
+            XCTAssertEqual(result.text, "真实答案")
+            XCTAssertEqual(result.reasoning, "真实思考")
+        }
+    }
+
+    func testJSONCompletionLargerThanErrorBufferStillPreservesFullContent() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        let text = String(repeating: "x", count: 32_000)
+        let json: [String: Any] = ["choices": [["message": ["content": text], "finish_reason": "stop"]]]
+        StreamingURLProtocol.lines = [try JSONSerialization.data(withJSONObject: json)]
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, text)
+    }
+
+    func testJSON200MissingFinishCannotCompleteFromTextAlone() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        StreamingURLProtocol.lines = [Data("{\"choices\":[{\"message\":{\"content\":\"partial\"}}]}".utf8)]
+        let result = try await receiveFixture()
+        XCTAssertEqual(result.text, "partial")
+        XCTAssertEqual(failureReason(result.error), .interrupted)
+    }
+
+    func testAbnormalTerminalsPreserveSameFrameReasoningAndBodyThenFail() async throws {
+        let terminals: [(String, MessageFailureReason)] = [
+            ("length", .outputLimit), ("content_filter", .filtered),
+            ("tool_calls", .unsupportedTool), ("function_call", .unsupportedTool)]
+        for (reason, expected) in terminals {
+            for isJSON in [false, true] {
+                StreamingURLProtocol.contentType = isJSON ? "application/json" : "text/event-stream"
+                let choice: [String: Any] = ["index": 0, "finish_reason": reason,
+                    isJSON ? "message" : "delta": ["content": "last body", "reasoning_content": "last thought"]]
+                let data = try JSONSerialization.data(withJSONObject: ["choices": [choice]])
+                StreamingURLProtocol.lines = isJSON ? [data] : fragmented(
+                    "data: " + String(decoding: data, as: UTF8.self) + "\n\ndata: [DONE]\n\n", size: 5)
+                let result = try await receiveFixture()
+                XCTAssertEqual(result.text, "last body")
+                XCTAssertEqual(result.reasoning, "last thought")
+                XCTAssertEqual(failureReason(result.error), expected)
+            }
+        }
+    }
+
+    func testJSON200ErrorEnvelopesTakePrecedenceOverChoicesAndHidePrivateText() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        let codes: [(String, MessageFailureReason)] = [
+            ("UPSTREAM_BUSY", .busy), ("UPSTREAM_TIMEOUT", .timedOut),
+            ("MODEL_UNAVAILABLE", .unavailable), ("UPSTREAM_UNAVAILABLE", .unavailable),
+            ("UPSTREAM_CONFIGURATION", .unavailable), ("EMPTY_UPSTREAM", .invalidResponse),
+            ("INVALID_UPSTREAM_RESPONSE", .invalidResponse), ("REQUEST_INTERRUPTED", .interrupted),
+            ("MESSAGE_TOO_LARGE", .contextLimit),
+            ("HISTORY_TOO_LARGE", .contextLimit), ("QUOTA_EXCEEDED", .requestFailed),
+            ("private-unknown-code", .invalidResponse)]
+        for (code, expected) in codes {
+            for nested in [false, true] {
+                let detail: [String: Any] = ["code": code,
+                    "message": "fixture-fake-secret private prompt https://private.invalid"]
+                var json: [String: Any] = nested ? ["error": detail] : detail
+                json["choices"] = [["message": ["content": "must not yield"], "finish_reason": "stop"]]
+                StreamingURLProtocol.lines = [try JSONSerialization.data(withJSONObject: json)]
+                let result = try await receiveFixture()
+                XCTAssertEqual(result.text, "")
+                XCTAssertEqual(failureReason(result.error), expected)
+                let description = result.error?.localizedDescription ?? ""
+                XCTAssertFalse(description.contains("fixture-fake-secret"))
+                XCTAssertFalse(description.contains("private"))
+            }
+        }
+    }
+
+    func testJSON200InvalidShapesAndUnknownFinishNeverComplete() async throws {
+        StreamingURLProtocol.contentType = "application/json"
+        for fixture in ["{}", "[]", "{\"choices\":[]}",
+            "{\"choices\":[{\"message\":{\"content\":123},\"finish_reason\":\"stop\"}]}",
+            "{\"choices\":[{\"delta\":{\"content\":\"wrong shape\"},\"finish_reason\":\"stop\"}]}" ] {
+            StreamingURLProtocol.lines = fragmented(fixture, size: 3)
+            let result = try await receiveFixture()
+            XCTAssertEqual(failureReason(result.error), .invalidResponse)
+        }
+        for reason in ["end_turn", "completed", "eos", "private-unknown-finish"] {
+            StreamingURLProtocol.lines = [Data("{\"choices\":[{\"message\":{\"content\":\"retained\"},\"finish_reason\":\"\(reason)\"}]}".utf8)]
+            let result = try await receiveFixture()
+            XCTAssertEqual(result.text, "retained")
+            XCTAssertEqual(failureReason(result.error), .invalidResponse)
+        }
+    }
+
+    func testUppercaseStopNormalizesButDoesNotAddUnverifiedAliases() async throws {
+        StreamingURLProtocol.lines = [Data("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"STOP\"}]}\n\n".utf8)]
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, "answer")
+    }
+
+    func testDisconnectFailsBeforeTerminalButExplicitStopWins() async throws {
+        StreamingURLProtocol.deferErrorUntilChunk = true
+        for hasStop in [false, true] {
+            let reason = hasStop ? "\"stop\"" : "null"
+            StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"delta\":{\"content\":\"already received\"},\"finish_reason\":\(reason)}]}\n\n", size: 9)
+            StreamingURLProtocol.transportError = URLError(.networkConnectionLost)
+            let result = try await receiveFixture()
+            XCTAssertEqual(result.text, "already received")
+            if hasStop { XCTAssertNil(result.error) }
+            else { XCTAssertEqual(failureReason(result.error), .interrupted) }
+        }
+    }
+
+    func testClientTimeoutUsesFixedLocalCopyAndClassification() async throws {
+        StreamingURLProtocol.transportError = URLError(.timedOut,
+            userInfo: [NSURLErrorFailingURLStringErrorKey: "https://private.invalid/fixture-fake-secret"])
+        let result = try await receiveFixture()
+        XCTAssertEqual(failureReason(result.error), .timedOut)
+        XCTAssertEqual(result.error?.localizedDescription, "连接模型服务超时，请稍后重试；本地对话已保留。")
+    }
+
+    func testErrorEventOrJSONErrorAfterPartialTextStillFails() async throws {
+        let prefix = "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n"
+        for tail in ["event: error\ndata: {\"error\":{\"message\":\"private\"}}",
+            "data: {\"error\":{\"code\":\"UPSTREAM_BUSY\",\"message\":\"private\"}}\n\ndata: [DONE]\n\n"] {
+            StreamingURLProtocol.lines = fragmented(prefix + tail, size: 1)
+            let result = try await receiveFixture()
+            XCTAssertEqual(result.text, "partial")
+            XCTAssertNotNil(result.error)
+            XCTAssertFalse((result.error?.localizedDescription ?? "").contains("private"))
+        }
+    }
+
+    func testSSELineAndEventBoundsAndInvalidUTF8FailClosed() async throws {
+        let large = String(repeating: "x", count: 256 * 1_024)
+        for fixture in ["data: " + large,
+            "data: " + String(repeating: "x", count: 140_000) + "\n"
+                + "data: " + String(repeating: "x", count: 140_000) + "\n\n"] {
+            StreamingURLProtocol.lines = fragmented(fixture, size: 8192)
+            let result = try await receiveFixture()
+            XCTAssertEqual(failureReason(result.error), .invalidResponse)
+        }
+        StreamingURLProtocol.lines = [Data("data: ".utf8), Data([0xff, 0x0a, 0x0a])]
+        let invalid = try await receiveFixture()
+        XCTAssertEqual(failureReason(invalid.error), .invalidResponse)
+    }
+
+    func testServerKeeps180SecondTimeoutAndEntireRequestContext() async throws {
+        let conversation = (0..<101).map { index in
+            ChatMessage(role: index.isMultiple(of: 2) ? .user : .assistant, content: "turn-\(index)")
+        }
+        StreamingURLProtocol.lines = [Data("data: {\"choices\":[{\"delta\":{\"content\":\"fixture answer\"},\"finish_reason\":\"stop\"}]}\n\n".utf8)]
+        let adapter = backend(profile(.amoreServer))
+        let stream = try await adapter.stream(messages: conversation, options: plain)
+        for try await _ in stream {}
+        XCTAssertGreaterThanOrEqual(StreamingURLProtocol.capturedRequest?.timeoutInterval ?? 0, 180)
+        XCTAssertEqual(StreamingURLProtocol.capturedRequest?.value(forHTTPHeaderField: "Accept"),
+                       "text/event-stream, application/json")
+        let data = try adapter.requestBody(messages: conversation, options: plain)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let sent = try XCTUnwrap(json["messages"] as? [[String: Any]])
+        XCTAssertEqual(sent.count, 102)
+        XCTAssertEqual(sent[1]["content"] as? String, "turn-0")
+        XCTAssertEqual(sent.last?["content"] as? String, "turn-100")
+        XCTAssertNil(json["max_tokens"])
+        XCTAssertNil(json["max_completion_tokens"])
+    }
+
+    func testHTTPErrorBufferStaysBoundedAndStatusClassificationIsLocal() async throws {
+        StreamingURLProtocol.status = 400
+        StreamingURLProtocol.contentType = "application/json"
+        // If receive accidentally starts buffering the entire error, the code at
+        // the end would select busy instead of the expected generic HTTP failure.
+        let json: [String: Any] = ["padding": String(repeating: "x", count: 40_000), "code": "UPSTREAM_BUSY"]
+        let data = try JSONSerialization.data(withJSONObject: json, options: .sortedKeys)
+        // Force code to the tail rather than relying on dictionary key order.
+        let fixture = "{\"padding\":\"" + String(repeating: "x", count: 40_000)
+            + "\",\"code\":\"UPSTREAM_BUSY\"}"
+        XCTAssertGreaterThan(data.count, 16 * 1_024)
+        StreamingURLProtocol.lines = fragmented(fixture, size: 1024)
+        let bounded = try await receiveFixture()
+        XCTAssertEqual(failureReason(bounded.error), .requestFailed)
+        XCTAssertTrue((bounded.error?.localizedDescription ?? "").contains("400"))
+        for (status, expected) in [(401, MessageFailureReason.authentication),
+                                   (403, .authentication), (504, .timedOut)] {
+            StreamingURLProtocol.status = status
+            StreamingURLProtocol.lines = [Data("{\"message\":\"private\"}".utf8)]
+            let result = try await receiveFixture()
+            XCTAssertEqual(failureReason(result.error), expected)
+            XCTAssertFalse((result.error?.localizedDescription ?? "").contains("private"))
+        }
+    }
+
     func testCancellingConsumerStopsURLSessionRequest() async throws {
         StreamingURLProtocol.holdOpen = true
         let started = expectation(description: "Request started")
@@ -304,4 +626,32 @@ final class OpenAICompatibleBackendTests: XCTestCase {
         catch is CancellationError { /* also permitted */ }
         catch { XCTFail("Expected cancellation, got \(type(of: error))") }
     }
+    func testStopCompletesAndCancelsConnectionThatStaysOpen() async throws {
+        StreamingURLProtocol.holdOpen = true
+        let stopped = expectation(description: "Explicit stop cancels remaining transport")
+        StreamingURLProtocol.stopExpectation = stopped
+        StreamingURLProtocol.lines = fragmented("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"finished\"},\"finish_reason\":\"stop\"}]}\n\n", size: 7)
+        let result = try await receiveFixture()
+        XCTAssertNil(result.error)
+        XCTAssertEqual(result.text, "finished")
+        await fulfillment(of: [stopped], timeout: 5)
+    }
+
+    func testEmptyStreamOrRoleOnlyCannotBecomeComplete() async throws {
+        for fixture in [
+            "data: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"}}]}\n\ndata: [DONE]\n\n",
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"  \"},\"finish_reason\":\"stop\"}]}\n\n"
+        ] {
+            StreamingURLProtocol.lines = fragmented(fixture, size: 3)
+            let result = try await receiveFixture()
+            XCTAssertEqual(failureReason(result.error), .invalidResponse)
+        }
+        StreamingURLProtocol.contentType = "application/json"
+        StreamingURLProtocol.lines = [Data("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}]}".utf8)]
+        let result = try await receiveFixture()
+        XCTAssertEqual(failureReason(result.error), .invalidResponse)
+    }
+
 }
