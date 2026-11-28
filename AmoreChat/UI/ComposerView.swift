@@ -2,7 +2,8 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-/// The root view owns the safe area. This view only lays out the composer and its real pickers.
+/// Edge-to-edge bottom dock. Controls remain above the provided home-indicator inset;
+/// the panel artwork fills the bottom safe area without ignoring the software keyboard.
 @MainActor
 struct ComposerView: View {
     @Bindable var controller: ChatController
@@ -15,6 +16,7 @@ struct ComposerView: View {
     var speechFinishing = false
     var speechPermissionPending = false
     var dismissKeyboardSignal: Int = 0
+    var bottomSafeAreaInset: CGFloat = 0
 
     @FocusState private var messageFocused: Bool
     @State private var attachmentsOpen = false
@@ -153,15 +155,9 @@ struct ComposerView: View {
                 }
                 .frame(minHeight: 44)
             }
-            .padding(.horizontal, 12)
-            .padding(.top, 13)
-            .padding(.bottom, 7)
-            .background(ComposerColors.card, in: RoundedRectangle(cornerRadius: 29, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 29, style: .continuous)
-                    .strokeBorder(ComposerColors.cardBorder, lineWidth: 0.7)
-                    .allowsHitTesting(false)
-            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
 
             if attachmentsOpen {
                 VStack(alignment: .trailing, spacing: 4) {
@@ -181,8 +177,21 @@ struct ComposerView: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, attachmentsOpen ? 16 : 0)
+        .padding(.bottom, max(0, bottomSafeAreaInset))
+        .background {
+            UnevenRoundedRectangle(topLeadingRadius: 25, bottomLeadingRadius: 0,
+                                   bottomTrailingRadius: 0, topTrailingRadius: 25,
+                                   style: .continuous)
+                .fill(ComposerColors.card)
+                .overlay {
+                    UnevenRoundedRectangle(topLeadingRadius: 25, bottomLeadingRadius: 0,
+                                           bottomTrailingRadius: 0, topTrailingRadius: 25,
+                                           style: .continuous)
+                        .strokeBorder(ComposerColors.cardBorder, lineWidth: 0.7)
+                }
+                .ignoresSafeArea(.container, edges: .bottom)
+                .allowsHitTesting(false)
+        }
         .alert("联网搜索可能产生额外费用", isPresented: $confirmPaidSearch) {
             Button("开启联网搜索") {
                 guard controller.setWebSearch(true) else { return }

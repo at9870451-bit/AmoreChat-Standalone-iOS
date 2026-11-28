@@ -55,6 +55,11 @@ struct TranscriptView: View {
                                        && controller.messages.last?.id == message.id && message.role == .assistant)
                             .id(message.id)
                     }
+                    if !controller.messages.isEmpty {
+                        Text("回答由 AI 生成，仅供参考")
+                            .font(.caption2).foregroundStyle(ChatTheme.muted)
+                            .frame(maxWidth: .infinity)
+                    }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
                 .frame(maxWidth: 780).frame(maxWidth: .infinity)

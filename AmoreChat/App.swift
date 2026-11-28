@@ -90,6 +90,13 @@ struct RootView: View {
         GeometryReader { geometry in
             let sidebarWidth = min(340, geometry.size.width * 0.783)
             let previewTop = sidebarOpen ? min(36, geometry.safeAreaInsets.top * 0.60) : 0
+            let previewWidth = sidebarOpen ? geometry.size.width - sidebarWidth : geometry.size.width
+            let panelShape = UnevenRoundedRectangle(
+                topLeadingRadius: sidebarOpen ? 28 : 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: sidebarOpen ? 28 : 0,
+                topTrailingRadius: 0,
+                style: .continuous)
             ZStack(alignment: .leading) {
                 ChatTheme.canvas.ignoresSafeArea()
                 if sidebarOpen {
@@ -127,32 +134,29 @@ struct RootView: View {
                                  speechInputActive: speech.isStarting || speech.isRecording || speech.isFinishing,
                                  speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
                                  speechPermissionPending: speech.requestingPermission,
-                                 dismissKeyboardSignal: keyboardDismissSignal)
-                    if !controller.messages.isEmpty {
-                        Text("回答由 AI 生成，仅供参考")
-                            .font(.caption2).foregroundStyle(ChatTheme.muted)
-                            .padding(.top, 3)
-                    }
+                                 dismissKeyboardSignal: keyboardDismissSignal,
+                                 bottomSafeAreaInset: geometry.safeAreaInsets.bottom)
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .background {
-                    // Extend only the card artwork, not the composer or its tappable safe area.
-                    UnevenRoundedRectangle(topLeadingRadius: sidebarOpen ? 28 : 0,
-                                           bottomLeadingRadius: 0, bottomTrailingRadius: 0,
-                                           topTrailingRadius: sidebarOpen ? 28 : 0)
-                        .fill(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
-                        .overlay {
-                            UnevenRoundedRectangle(topLeadingRadius: sidebarOpen ? 28 : 0,
-                                                   bottomLeadingRadius: 0, bottomTrailingRadius: 0,
-                                                   topTrailingRadius: sidebarOpen ? 28 : 0)
-                                .strokeBorder(ChatTheme.line.opacity(sidebarOpen ? 0.42 : 0), lineWidth: 0.5)
-                        }
-                        .padding(.top, -previewTop)
-                        .ignoresSafeArea(.container, edges: .bottom)
+                // Extend the panel, not its buttons, through the home-indicator area.
+                .frame(width: geometry.size.width, height: geometry.size.height + geometry.safeAreaInsets.bottom)
+                .padding(.top, previewTop)
+                .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
+                .mask(alignment: .topLeading) {
+                    // Mask the VISIBLE strip after opening: the lower-right corner must be
+                    // on the screen edge, not off-screen on the translated full-width view.
+                    panelShape.frame(width: previewWidth,
+                                     height: geometry.size.height + geometry.safeAreaInsets.bottom + previewTop)
+                }
+                .overlay(alignment: .topLeading) {
+                    panelShape
+                        .strokeBorder(ChatTheme.line.opacity(sidebarOpen ? 0.42 : 0), lineWidth: 0.5)
+                        .frame(width: previewWidth,
+                               height: geometry.size.height + geometry.safeAreaInsets.bottom + previewTop)
+                        .allowsHitTesting(false)
                 }
                 .allowsHitTesting(!sidebarOpen)
                 .accessibilityHidden(sidebarOpen)
-                .offset(x: sidebarOpen ? sidebarWidth : 0)
+                .offset(x: sidebarOpen ? sidebarWidth : 0, y: -previewTop)
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .zIndex(1)
                 if sidebarOpen {
