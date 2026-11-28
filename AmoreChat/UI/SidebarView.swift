@@ -18,6 +18,7 @@ import SwiftUI
     @State private var renameID: UUID?
     @State private var renameText = ""
     @State private var deletionID: UUID?
+    @State private var showsAvatarEditor = false
 
     private let groupTitles = ["置顶", "今天", "昨天", "7 天内", "30 天内", "更早"]
 
@@ -53,6 +54,9 @@ import SwiftUI
         }
         .foregroundStyle(ChatTheme.text)
         .background(ChatTheme.canvas)
+        .sheet(isPresented: $showsAvatarEditor) {
+            AvatarSetupView()
+        }
         .alert("重命名对话", isPresented: Binding(
             get: { renameID != nil }, set: { if !$0 { renameID = nil } }
         ), presenting: renameID) { id in
@@ -149,19 +153,28 @@ import SwiftUI
     }
 
     private var profileFooter: some View {
-        let name = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = backend.displayUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localName = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = username.isEmpty ? (localName.isEmpty ? "访客" : localName) : username
 
         return HStack(spacing: 10) {
-            Image(systemName: "person.fill")
-                .font(.system(size: profileSize / 2))
-                .foregroundStyle(ChatTheme.muted)
-                .frame(width: profileSize, height: profileSize)
-                .background(ChatTheme.raised, in: Circle())
-                .accessibilityHidden(true)
-            Text(name.isEmpty ? "访客" : name)
-                .font(.system(size: itemFontSize))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                showsAvatarEditor = true
+            } label: {
+                HStack(spacing: 10) {
+                    LocalAvatarView(size: profileSize)
+                        .accessibilityHidden(true)
+                    Text(name)
+                        .font(.system(size: itemFontSize))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(name)，更换头像")
+            .accessibilityIdentifier("sidebar.editAvatar")
             Button(action: onSettings) { icon("ellipsis") }
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开设置")

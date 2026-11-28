@@ -22,16 +22,20 @@ struct ChatMessage: Codable, Identifiable, Sendable, Equatable {
     let role: ChatRole
     var content: String
     var reasoning: String?
+    /// nil identifies legacy/imported messages; infer only from their own nonempty reasoning.
+    var thinkingRequested: Bool? = nil
     var reasoningDuration: TimeInterval? = nil
     var attachments: [ChatAttachment]
     let createdAt: Date
     var status: MessageStatus
 
     init(id: UUID = UUID(), role: ChatRole, content: String,
-         reasoning: String? = nil, attachments: [ChatAttachment] = [],
+         reasoning: String? = nil, thinkingRequested: Bool? = nil,
+         attachments: [ChatAttachment] = [],
          createdAt: Date = .now, status: MessageStatus = .complete) {
         self.id = id; self.role = role; self.content = content
-        self.reasoning = reasoning; self.attachments = attachments
+        self.reasoning = reasoning; self.thinkingRequested = thinkingRequested
+        self.attachments = attachments
         self.createdAt = createdAt; self.status = status
     }
 }

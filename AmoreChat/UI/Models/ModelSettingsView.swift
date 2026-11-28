@@ -55,7 +55,7 @@ struct ModelSettingsView: View {
                         } header: {
                             Text("服务器 API")
                         } footer: {
-                            Text("由管理后台聚合多个外部接口；使用服务器模型时按真实用量扣减账户 token，上游密钥不会下发到 App。")
+                            Text("使用账户 token 额度，无需填写 API Key。")
                         }
                     }
                     Section("当前使用") {
@@ -63,7 +63,8 @@ struct ModelSettingsView: View {
                             Label {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(current.label).font(.body.weight(.semibold))
-                                    Text(current.modelID).font(.subheadline).foregroundStyle(.secondary)
+                                    Text(current.provider == .amoreServer ? "AmoreChat 模型" : current.modelID)
+                                        .font(.subheadline).foregroundStyle(.secondary)
                                 }
                             } icon: {
                                 Image(systemName: "checkmark.circle.fill")
@@ -178,7 +179,7 @@ struct ModelSettingsView: View {
                     .frame(width: 28)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(model.label).font(.body.weight(.medium)).foregroundStyle(.primary)
-                    Text("\(model.provider) · \(model.model)").font(.subheadline)
+                    Text(model.model).font(.subheadline)
                         .foregroundStyle(.secondary).lineLimit(2)
                     Text(capabilityLine(model))
                         .font(.caption2).foregroundStyle(ChatTheme.muted)
@@ -202,7 +203,6 @@ struct ModelSettingsView: View {
 
     private func capabilityLine(_ model: BackendServerModel) -> String {
         var parts = ["服务器额度"]
-        if model.routeTotal > 1 { parts.append("\(model.routeTotal) 路上游聚合") }
         if model.supportsThinking { parts.append("思考") }
         if model.webSearchEnabled { parts.append("智能搜索") }
         return parts.joined(separator: " · ")

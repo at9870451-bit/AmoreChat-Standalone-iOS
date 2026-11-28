@@ -6,10 +6,12 @@ struct AmoreChatStandaloneApp: App {
     @State private var controller = AppControllerFactory.make()
     @State private var speech = SpeechInput()
     @State private var reader = SpeechReader()
+    @State private var localProfile = LocalProfileStore()
 
     var body: some Scene {
         WindowGroup {
             BackendGateView(auth: auth, controller: controller, speech: speech, reader: reader)
+                .environment(localProfile)
         }
     }
 }
@@ -20,6 +22,13 @@ struct BackendGateView: View {
     @Bindable var controller: ChatController
     @Bindable var speech: SpeechInput
     @Bindable var reader: SpeechReader
+    @Environment(LocalProfileStore.self) private var localProfile
+
+    private var avatarSetupPresented: Binding<Bool> {
+        Binding(get: {
+            auth.isSignedIn && !auth.isTestMode && localProfile.needsAvatarSetup
+        }, set: { _ in })
+    }
 
     var body: some View {
         Group {
@@ -34,6 +43,13 @@ struct BackendGateView: View {
         }
         .environment(auth)
         .task { await auth.start() }
+        .task(id: auth.user?.id) {
+            await localProfile.selectAccount(auth.isSignedIn ? auth.user?.id : nil)
+        }
+        .fullScreenCover(isPresented: avatarSetupPresented) {
+            AvatarSetupView(isInitialSetup: true)
+                .environment(localProfile)
+        }
     }
 }
 
@@ -73,7 +89,6 @@ struct RootView: View {
     var body: some View {
         GeometryReader { geometry in
             let sidebarWidth = min(340, geometry.size.width * 0.783)
-            let previewScale = sidebarOpen ? 0.966 : 1.0
             let previewTop = sidebarOpen ? min(36, geometry.safeAreaInsets.top * 0.60) : 0
             ZStack(alignment: .leading) {
                 ChatTheme.canvas.ignoresSafeArea()
@@ -120,20 +135,24 @@ struct RootView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .padding(.top, previewTop)
-                .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
-                .clipShape(RoundedRectangle(cornerRadius: sidebarOpen ? 28 : 0))
-                .overlay {
-                    if sidebarOpen {
-                        RoundedRectangle(cornerRadius: 28)
-                            .strokeBorder(ChatTheme.line.opacity(0.42), lineWidth: 0.5)
-                            .allowsHitTesting(false)
-                    }
+                .background {
+                    // Extend only the card artwork, not the composer or its tappable safe area.
+                    UnevenRoundedRectangle(topLeadingRadius: sidebarOpen ? 28 : 0,
+                                           bottomLeadingRadius: 0, bottomTrailingRadius: 0,
+                                           topTrailingRadius: sidebarOpen ? 28 : 0)
+                        .fill(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
+                        .overlay {
+                            UnevenRoundedRectangle(topLeadingRadius: sidebarOpen ? 28 : 0,
+                                                   bottomLeadingRadius: 0, bottomTrailingRadius: 0,
+                                                   topTrailingRadius: sidebarOpen ? 28 : 0)
+                                .strokeBorder(ChatTheme.line.opacity(sidebarOpen ? 0.42 : 0), lineWidth: 0.5)
+                        }
+                        .padding(.top, -previewTop)
+                        .ignoresSafeArea(.container, edges: .bottom)
                 }
                 .allowsHitTesting(!sidebarOpen)
                 .accessibilityHidden(sidebarOpen)
-                .scaleEffect(previewScale, anchor: .leading)
-                .offset(x: sidebarOpen ? sidebarWidth : 0, y: -previewTop)
+                .offset(x: sidebarOpen ? sidebarWidth : 0)
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .zIndex(1)
                 if sidebarOpen {
@@ -190,7 +209,10 @@ struct RootView: View {
             reader.stop()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .background { cancelSpeech(); reader.stop() }
+            if phase == .background {
+                cancelSpeech(); reader.stop()
+                Task { await controller.flushLocalState() }
+            }
         }
         .onChange(of: readerMuted) { _, muted in if muted { reader.stop() } }
         .onChange(of: controller.completedReplyText) { _, reply in

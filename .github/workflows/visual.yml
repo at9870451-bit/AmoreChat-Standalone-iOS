@@ -1,9 +1,6 @@
 name: Standalone iOS UI Screens
+# Manual-only per user preference: package first, device testing is performed by the user.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read

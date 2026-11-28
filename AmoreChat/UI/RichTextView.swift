@@ -3,7 +3,10 @@ import UIKit
 import WebKit
 
 /// A deliberately small, offline Markdown renderer; unsupported LaTeX remains readable.
-struct RichTextView: View {
+struct RichTextView: View, Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source == rhs.source && lhs.isReasoning == rhs.isReasoning
+    }
     let source: String
     var isReasoning = false
     @ScaledMetric(relativeTo: .body) private var bodySize: CGFloat = 16.5

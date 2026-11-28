@@ -64,6 +64,11 @@ import Observation
     private var backend: any ChatBackend
     private var streamTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
+    private var archiveWriteTask: Task<Void, Never>?
+    @ObservationIgnored private var replyBuffer: ReplyStreamBuffer?
+    @ObservationIgnored private var replyFlushTask: Task<Void, Never>?
+    @ObservationIgnored private var streamCheckpointTask: Task<Void, Never>?
+    private let replyPublicationInterval: TimeInterval = 1.0 / 30.0
 
     init(archive: ChatArchive = ChatArchive(), backend: (any ChatBackend)? = nil,
          catalog: ModelCatalog? = nil, injectedModelName: String? = nil) {
@@ -217,6 +222,9 @@ import Observation
         defer { isImporting = false }
         saveTask?.cancel()
         if let pending = saveTask { await pending.value }
+        saveTask = nil
+        // Join any already-enqueued checkpoint/final write before the atomic import.
+        if let pending = archiveWriteTask { await pending.value }
         let merged = result.merging(into: sessions)
         guard merged.sessions.count <= 10_000 else {
             throw DeepSeekImportError.unsafeArchive("合并后的会话过多")
@@ -347,55 +355,96 @@ import Observation
     func stop() { streamTask?.cancel() }
 
     private func startResponse(in id: UUID, history: [ChatMessage]) {
-        let reply = ChatMessage(role: .assistant, content: "", status: .streaming)
-        append(reply, to: id)
-        isGenerating = true
         let options = ChatOptions(deepThinking: thinkingEnabled && supportsThinking,
                                   webSearch: webSearchEnabled && supportsWebSearch)
+        let reply = ChatMessage(role: .assistant, content: "",
+                                thinkingRequested: options.deepThinking, status: .streaming)
+        append(reply, to: id)
+        isGenerating = true
         completedReplyText = nil
+        replyBuffer = ReplyStreamBuffer(sessionID: id, replyID: reply.id)
+        startStreamCheckpoints(for: reply.id)
         streamTask = Task {
-            let clock = ProcessInfo.processInfo
-            var thinkingStart: TimeInterval?
-            var answering = false
-            var answer = ""
+            var status: MessageStatus = .complete
             do {
                 let chunks = try await backend.stream(messages: history, options: options)
                 for try await chunk in chunks {
                     try Task.checkCancellation()
-                    mutateReply(reply.id, in: id) { value in
-                        switch chunk {
-                        case .text(let text):
-                            if !answering, let thinkingStart {
-                                value.reasoningDuration = max(0, clock.systemUptime - thinkingStart)
-                            }
-                            answering = true
-                            value.content += text
-                            answer += text
-                        case .reasoning(let text):
-                            if thinkingStart == nil && !answering { thinkingStart = clock.systemUptime }
-                            value.reasoning = (value.reasoning ?? "") + text
-                        }
-                    }
-                    persist()
+                    receive(chunk)
+                    // No artificial delay/backpressure; let UI and timer tasks run even
+                    // when AsyncThrowingStream already has a large backlog of chunks.
+                    await Task.yield()
                 }
                 try Task.checkCancellation()
-                mutateReply(reply.id, in: id) {
-                    if !answering, let thinkingStart {
-                        $0.reasoningDuration = max(0, clock.systemUptime - thinkingStart)
-                    }
-                    $0.status = .complete
-                }
-                if !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    completedReplyText = answer
-                }
             } catch is CancellationError {
-                mutateReply(reply.id, in: id) { $0.status = .failed }
+                status = .failed
                 errorText = "已停止生成。"
             } catch {
-                mutateReply(reply.id, in: id) { $0.status = .failed }
+                status = .failed
                 errorText = "请求失败：\(error.localizedDescription)"
             }
-            isGenerating = false; streamTask = nil; persist()
+            // All exit paths publish pending real content and close the monotonic timer.
+            replyBuffer?.finishTiming(now: ProcessInfo.processInfo.systemUptime)
+            flushPendingReply()
+            mutateReply(reply.id, in: id) { $0.status = status }
+            if status == .complete, let answer = replyBuffer?.answer,
+               !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                completedReplyText = answer
+            }
+            replyFlushTask?.cancel(); replyFlushTask = nil
+            streamCheckpointTask?.cancel(); streamCheckpointTask = nil
+            replyBuffer = nil
+            isGenerating = false; streamTask = nil
+            persistImmediately()
+        }
+    }
+
+    private func receive(_ chunk: BackendChunk) {
+        guard let buffer = replyBuffer else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        buffer.append(chunk, now: now)
+        let elapsed = buffer.lastPublication.map { now - $0 } ?? replyPublicationInterval
+        if elapsed >= replyPublicationInterval {
+            // First delta is immediate; later publications are at most 30 Hz.
+            replyFlushTask?.cancel(); replyFlushTask = nil
+            flushPendingReply()
+        } else if replyFlushTask == nil {
+            let deadline = now + max(0, replyPublicationInterval - elapsed)
+            let replyID = buffer.replyID
+            replyFlushTask = Task { [weak self] in
+                let remaining = max(0, deadline - ProcessInfo.processInfo.systemUptime)
+                do { try await Task.sleep(for: .seconds(remaining), tolerance: .milliseconds(1)) }
+                catch { return }
+                guard !Task.isCancelled, let self, self.replyBuffer?.replyID == replyID else { return }
+                self.replyFlushTask = nil
+                self.flushPendingReply()
+            }
+        }
+    }
+
+    private func flushPendingReply() {
+        guard let buffer = replyBuffer, buffer.hasPending else { return }
+        let delta = buffer.takePending(now: ProcessInfo.processInfo.systemUptime)
+        mutateReply(buffer.replyID, in: buffer.sessionID) { value in
+            value.content += delta.content
+            if let reasoning = delta.reasoning {
+                value.reasoning = (value.reasoning ?? "") + reasoning
+            }
+            if let duration = delta.reasoningDuration { value.reasoningDuration = duration }
+        }
+    }
+
+    private func startStreamCheckpoints(for replyID: UUID) {
+        streamCheckpointTask?.cancel()
+        streamCheckpointTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) }
+                catch { return }
+                guard !Task.isCancelled, let self, self.replyBuffer?.replyID == replyID else { return }
+                // Independent of chunk frequency: a continuous stream cannot debounce
+                // every checkpoint away. Pending UI deltas follow their own 33ms timer.
+                self.persistImmediately()
+            }
         }
     }
 
@@ -414,14 +463,46 @@ import Observation
         edit(&sessions[i].messages[j]); sessions[i].updatedAt = .now
     }
 
+    /// Publishes in-memory deltas and waits for this snapshot and older writes.
+    /// Safe to call when the scene enters the background; generation may continue.
+    func flushLocalState() async {
+        guard !isImporting else { return }
+        replyFlushTask?.cancel(); replyFlushTask = nil
+        flushPendingReply()
+        persistImmediately()
+        if let pending = archiveWriteTask { await pending.value }
+    }
+
     private func persist() {
+        guard !isImporting else { return }
         saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(250)) }
+            catch { return }
+            guard !Task.isCancelled, let self, !self.isImporting else { return }
+            self.saveTask = nil
+            // Capture only after the debounce, not on every edit/chunk. This avoids
+            // keeping the entire sessions value shared throughout the delay.
+            self.enqueueSnapshot()
+        }
+    }
+
+    private func persistImmediately() {
+        guard !isImporting else { return }
+        saveTask?.cancel(); saveTask = nil
+        enqueueSnapshot()
+    }
+
+    private func enqueueSnapshot() {
         let snapshot = sessions
-        saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
+        let previous = archiveWriteTask
+        let archive = archive
+        // Once enqueued a snapshot is never canceled. Explicitly join its predecessor
+        // so a delayed checkpoint cannot overwrite a newer final/background snapshot.
+        archiveWriteTask = Task { [weak self] in
+            if let previous { await previous.value }
             do { try await archive.save(snapshot) }
-            catch { errorText = "无法保存会话：\(error.localizedDescription)" }
+            catch { self?.errorText = "无法保存会话：\(error.localizedDescription)" }
         }
     }
 }

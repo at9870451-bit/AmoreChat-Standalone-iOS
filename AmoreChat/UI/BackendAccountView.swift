@@ -6,6 +6,7 @@ struct BackendAccountView: View {
     @Bindable var controller: ChatController
     @Environment(BackendAuthStore.self) private var backend
     @State private var showsLogout = false
+    @State private var showsAvatarEditor = false
 
     var body: some View {
         ScrollView {
@@ -16,7 +17,7 @@ struct BackendAccountView: View {
                 localOnlyCard
                 ledgerCard
                 if backend.isTestMode {
-                    Text("当前是界面测试模式，未连接真实云端账户。")
+                    Text("当前为界面预览模式，账户数据仅供展示。")
                         .font(.caption2).foregroundStyle(ChatTheme.muted)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 4)
@@ -27,12 +28,15 @@ struct BackendAccountView: View {
             .padding(16)
         }
         .background(ChatTheme.settingsBackground.ignoresSafeArea())
+        .sheet(isPresented: $showsAvatarEditor) {
+            AvatarSetupView()
+        }
         .task {
             guard !backend.isTestMode else { return }
             await backend.refreshUser()
             await backend.loadLedger()
         }
-        .confirmationDialog("退出云端账户？", isPresented: $showsLogout, titleVisibility: .visible) {
+        .confirmationDialog("退出账户？", isPresented: $showsLogout, titleVisibility: .visible) {
             Button("退出登录", role: .destructive) { backend.logout() }
             Button("取消", role: .cancel) {}
         } message: {
@@ -42,23 +46,29 @@ struct BackendAccountView: View {
 
     private var profileCard: some View {
         accountCard {
-            HStack(spacing: 13) {
-                Image(systemName: "person.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(ChatTheme.muted)
-                    .frame(width: 44, height: 44)
-                    .background(ChatTheme.raised, in: Circle())
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(backend.user?.username ?? "云端账户")
-                        .font(.body.weight(.semibold))
-                    Text(backend.user?.isAdmin == true ? "管理员账户" : "AmoreChat 云端账户")
-                        .font(.caption).foregroundStyle(ChatTheme.muted)
+            Button {
+                showsAvatarEditor = true
+            } label: {
+                HStack(spacing: 13) {
+                    LocalAvatarView(size: 44)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(backend.user?.username ?? "AmoreChat 账户")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(ChatTheme.text)
+                        Text("头像仅保存在本机")
+                            .font(.caption).foregroundStyle(ChatTheme.muted)
+                    }
+                    Spacer(minLength: 0)
+                    Label("更换头像", systemImage: "chevron.forward")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(ChatTheme.accent)
                 }
-                Spacer(minLength: 0)
-                Text(BackendConfig.baseURL.host ?? "")
-                    .font(.caption2).foregroundStyle(ChatTheme.muted)
-                    .lineLimit(1)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("更换头像")
+            .accessibilityIdentifier("account.editAvatar")
         }
     }
 
@@ -72,7 +82,7 @@ struct BackendAccountView: View {
                             .font(.system(size: 34, weight: .semibold, design: .rounded))
                             .minimumScaleFactor(0.7)
                             .lineLimit(1)
-                        Text("额度由账户后台记账；管理员可调整。")
+                        Text("可用于 AmoreChat 模型对话。")
                             .font(.caption2).foregroundStyle(ChatTheme.muted)
                     }
                     Spacer(minLength: 0)
@@ -128,7 +138,7 @@ struct BackendAccountView: View {
                     .disabled(backend.user?.inviteCode == nil)
                     .accessibilityIdentifier("account.copyInvite")
                 }
-                Text("成功邀请 \(backend.user?.inviteCount ?? 0) 人；每成功邀请一人，邀请人获得后台设定的 token 奖励。")
+                Text("成功邀请 \(backend.user?.inviteCount ?? 0) 人；每成功邀请一人，即可获得相应的 Token 奖励。")
                     .font(.caption2).foregroundStyle(ChatTheme.muted)
             }
         }
@@ -144,7 +154,7 @@ struct BackendAccountView: View {
                 } icon: {
                     Image(systemName: "lock.iphone").foregroundStyle(ChatTheme.accent)
                 }
-                Text("服务器不保存或留存聊天内容、附件、照片；这里只记录账户、额度和邀请。")
+                Text("聊天资料由你在本机管理；账户页提供额度和邀请信息。")
                     .font(.caption2).foregroundStyle(ChatTheme.muted)
                 Text("导入或清除请在「数据管理」操作，导出的文件由你自行保存。")
                     .font(.caption2).foregroundStyle(ChatTheme.muted)
@@ -171,7 +181,7 @@ struct BackendAccountView: View {
                         }
                     }
                 } else {
-                    Text(backend.ledgerError ?? "暂无额度变动记录。")
+                    Text(backend.ledgerError == nil ? "暂无额度变动记录。" : "暂时无法获取额度记录，请稍后刷新。")
                         .font(.caption2)
                         .foregroundStyle(backend.ledgerError == nil ? ChatTheme.muted : .red)
                 }
@@ -183,7 +193,7 @@ struct BackendAccountView: View {
         Button(role: .destructive) {
             showsLogout = true
         } label: {
-            Text("退出云端账户")
+            Text("退出登录")
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(.red)
                 .background(ChatTheme.surface, in: RoundedRectangle(cornerRadius: 14))
@@ -208,9 +218,9 @@ struct BackendAccountView: View {
         switch reason {
         case "SIGNUP_BONUS": return "注册赠送"
         case "INVITE_BONUS": return "邀请奖励"
-        case "AI_USAGE": return "模型 token 用量"
-        case "ADMIN_ADJUST": return "管理员调整"
-        default: return reason
+        case "AI_USAGE": return "模型用量"
+        case "ADMIN_ADJUST": return "额度调整"
+        default: return "额度变动"
         }
     }
 }

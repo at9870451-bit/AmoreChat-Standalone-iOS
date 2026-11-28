@@ -11,6 +11,7 @@ struct TranscriptView: View {
     var jump: HistoryJump? = nil
     @State private var nearBottom = true
     @State private var visibleLimit = 80
+    @State private var scrollUpdate: Task<Void, Never>?
     private let bottomID = "transcript-bottom"
     private struct ScrollTarget: Equatable {
         let sessionID: UUID?
@@ -20,7 +21,7 @@ struct TranscriptView: View {
 
     private var revision: String {
         guard let last = controller.messages.last else { return "empty" }
-        return "\(last.id)-\(last.content.count)-\(last.reasoning?.count ?? 0)-\(last.status.rawValue)"
+        return "\(last.id)-\(last.content.utf8.count)-\(last.reasoning?.utf8.count ?? 0)-\(last.status.rawValue)"
     }
 
     var body: some View {
@@ -79,12 +80,28 @@ struct TranscriptView: View {
                 }
             }
             .onChange(of: revision) { _, _ in
-                // New user turns and streaming chunks always win over a prior
-                // manual scroll position, matching the reference chat behavior.
-                withAnimation(.easeOut(duration: 0.12)) {
+                // Do not force users back down while they read earlier turns. Stream updates
+                // are coalesced and use no overlapping layout animations.
+                guard nearBottom else { return }
+                if controller.messages.last?.status != .streaming {
+                    scrollUpdate?.cancel(); scrollUpdate = nil
                     reader.scrollTo(bottomID, anchor: .bottom)
+                    return
                 }
+                guard scrollUpdate == nil else { return }
+                scrollUpdate = Task { @MainActor in
+                    do { try await Task.sleep(for: .milliseconds(90)) } catch { return }
+                    guard !Task.isCancelled, nearBottom else { scrollUpdate = nil; return }
+                    reader.scrollTo(bottomID, anchor: .bottom)
+                    scrollUpdate = nil
+                }
+            }
+            .onDisappear { scrollUpdate?.cancel(); scrollUpdate = nil }
+            .onChange(of: controller.messages.last?.id) { _, _ in
+                guard controller.isGenerating || controller.messages.last?.role == .user else { return }
                 nearBottom = true
+                scrollUpdate?.cancel(); scrollUpdate = nil
+                reader.scrollTo(bottomID, anchor: .bottom)
             }
             .onChange(of: forceBottomSignal) { _, _ in
                 reader.scrollTo(bottomID, anchor: .bottom)
@@ -127,7 +144,6 @@ private struct MessageRow: View {
     private var vote: Int { (decodeFeedback()[message.id.uuidString] ?? 0) }
 
     private var thinkingTitle: Text {
-        if isThinking { return Text("思考中…") }
         if message.status == .failed && message.content.isEmpty { return Text("思考已中断") }
         if let duration = message.reasoningDuration, duration.isFinite, duration > 0 {
             return Text("已思考（用时 \(Int(min(86_400, max(1, duration.rounded())))) 秒）")
@@ -143,7 +159,14 @@ private struct MessageRow: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Button { reasoningOpen.toggle() } label: {
                             HStack(spacing: 8) {
-                                thinkingTitle
+                                if message.thinkingRequested == true || message.reasoning?.isEmpty == false {
+                                    DeepThinkingGlyph()
+                                }
+                                if isThinking {
+                                    ThinkingDots()
+                                } else {
+                                    thinkingTitle
+                                }
                                 Image(systemName: reasoningOpen ? "chevron.down" : "chevron.right")
                                     .font(.caption.weight(.semibold))
                             }
@@ -158,6 +181,7 @@ private struct MessageRow: View {
                         if reasoningOpen {
                             HStack(alignment: .top, spacing: 11) {
                                 RichTextView(source: reasoning, isReasoning: true)
+                                    .equatable()
                                     .foregroundStyle(ChatTheme.muted)
                                     .padding(.leading, 14)
                                     .overlay(alignment: .leading) {
@@ -193,6 +217,7 @@ private struct MessageRow: View {
                                 .accessibilityIdentifier("message.user.bubble")
                         } else {
                             RichTextView(source: message.content)
+                                .equatable()
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
@@ -204,8 +229,12 @@ private struct MessageRow: View {
                                 showDeleteConfirm = true
                             }
                         }
-                } else if message.status == .streaming {
-                    ProgressView().controlSize(.small).accessibilityLabel("正在生成回复")
+                } else if message.status == .streaming && message.reasoning?.isEmpty != false {
+                    HStack(spacing: 8) {
+                        if message.thinkingRequested == true { DeepThinkingGlyph() }
+                        ThinkingDots()
+                    }
+                    .frame(minHeight: 37, alignment: .leading)
                 }
                 ForEach(message.attachments) { item in
                     ShareLink(item: item.localURL) { AttachmentCard(attachment: item) }
