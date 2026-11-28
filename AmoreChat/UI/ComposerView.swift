@@ -2,8 +2,8 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-/// Edge-to-edge bottom dock. Controls remain above the provided home-indicator inset;
-/// the panel artwork fills the bottom safe area without ignoring the software keyboard.
+/// Rounded floating composer. Its card ends above the home-indicator region,
+/// while the parent chat canvas remains full height and keyboard-aware.
 @MainActor
 struct ComposerView: View {
     @Bindable var controller: ChatController
@@ -156,8 +156,8 @@ struct ComposerView: View {
                 .frame(minHeight: 44)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            .padding(.top, 13)
+            .padding(.bottom, 8)
 
             if attachmentsOpen {
                 VStack(alignment: .trailing, spacing: 4) {
@@ -188,7 +188,7 @@ struct ComposerView: View {
                 }
         }
         .padding(.horizontal, 12)
-        .padding(.bottom, max(12, bottomSafeAreaInset + 10))
+        .padding(.bottom, max(10, bottomSafeAreaInset))
         .alert("联网搜索可能产生额外费用", isPresented: $confirmPaidSearch) {
             Button("开启联网搜索") {
                 guard controller.setWebSearch(true) else { return }

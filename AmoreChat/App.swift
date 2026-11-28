@@ -183,14 +183,11 @@ struct RootView: View {
         let sidebarWidth = min(340, size.width * 0.783)
         let fullHeight = size.height
         let previewTop = sidebarOpen ? min(36, topInset * 0.60) : 0
+        let previewBottomGap = sidebarOpen ? max(20, bottomInset * 0.68) : 0
+        let previewContentInset: CGFloat = sidebarOpen ? previewTop + 18 : 0
         let previewWidth = sidebarOpen ? size.width - sidebarWidth : size.width
-        let panelHeight = fullHeight + previewTop
-        let panelShape = UnevenRoundedRectangle(
-            topLeadingRadius: sidebarOpen ? 28 : 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: sidebarOpen ? 28 : 0,
-            topTrailingRadius: 0,
-            style: .continuous)
+        let panelHeight = fullHeight - previewBottomGap + previewTop
+        let panelShape = RoundedRectangle(cornerRadius: sidebarOpen ? 38 : 0, style: .continuous)
         return ZStack(alignment: .topLeading) {
             ChatTheme.canvas.ignoresSafeArea()
                 .frame(width: size.width, height: fullHeight)
@@ -230,14 +227,13 @@ struct RootView: View {
                              speechPartial: speech.transcript, speechFinishing: speech.isFinishing,
                              speechPermissionPending: speech.requestingPermission,
                              dismissKeyboardSignal: keyboardDismissSignal,
-                             bottomSafeAreaInset: bottomInset)
+                             bottomSafeAreaInset: sidebarOpen ? 32 : bottomInset)
             }
-            .frame(width: size.width, height: fullHeight, alignment: .top)
-            .padding(.top, previewTop)
+            // The conversation keeps its screen-wide layout; only its leading slice is
+            // visible after translation, matching the reference rather than reflowing text.
+            .frame(width: size.width, height: panelHeight - previewContentInset, alignment: .top)
+            .padding(.top, previewContentInset)
             .background(sidebarOpen ? ChatTheme.drawerPreview : ChatTheme.canvas)
-            // This wrapper owns the visible strip before translation. All child backgrounds
-            // (including the dock's safe-area fill) are clipped by the same final mask.
-            .frame(width: previewWidth, height: panelHeight, alignment: .topLeading)
             .clipShape(panelShape)
             .overlay {
                 panelShape

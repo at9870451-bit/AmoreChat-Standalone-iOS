@@ -31,9 +31,9 @@ struct TranscriptView: View {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     if controller.messages.isEmpty {
                         VStack(spacing: 22) {
-                            WhaleMark(size: 39)
-                            Text("你好，我能帮什么忙吗？")
-                                .font(.system(size: 21, weight: .semibold))
+                            WhaleMark(size: 34)
+                            Text("你好，有什么我能帮你的吗？")
+                                .font(.system(size: 19, weight: .semibold))
                                 .foregroundStyle(ChatTheme.text)
                                 .multilineTextAlignment(.center)
                                 .accessibilityIdentifier("home.welcome")
